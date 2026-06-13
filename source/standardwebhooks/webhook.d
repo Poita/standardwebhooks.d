@@ -1,0 +1,560 @@
+/**
+ * A faithful D implementation of the
+ * $(LINK2 https://www.standardwebhooks.com/, Standard Webhooks) signing and
+ * verification scheme.
+ *
+ * Standard Webhooks signs the tuple `{id}.{timestamp}.{payload}` with
+ * HMAC-SHA256 and a shared secret, base64-encodes the digest, and carries it in
+ * a `webhook-signature` header alongside `webhook-id` and `webhook-timestamp`.
+ * Verification recomputes the signature, compares it in constant time, and
+ * rejects payloads whose timestamp is outside a tolerance window.
+ *
+ * The core is dependency-free (Phobos only). For vibe.d HTTP integration, depend
+ * on the `standardwebhooks:vibe` subpackage and import `standardwebhooks.vibe`.
+ *
+ * Example:
+ * ---
+ * auto wh = Webhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+ *
+ * // Sender side: build the headers for an outgoing request.
+ * auto headers = wh.signHeaders("msg_2b3c", 1614265330, `{"event":"ping"}`);
+ *
+ * // Receiver side: verify an incoming request, throwing on any mismatch.
+ * string payload = wh.verify(`{"event":"ping"}`, headers);
+ * ---
+ */
+module standardwebhooks.webhook;
+
+import std.base64 : Base64;
+import std.conv : to, ConvException;
+import std.datetime.systime : Clock, SysTime;
+import std.datetime.timezone : UTC;
+import std.digest.hmac : HMAC;
+import std.digest.sha : SHA256;
+import std.string : indexOf, toLower;
+
+import standardwebhooks.exception;
+
+@safe:
+
+/// Canonical Standard Webhooks header carrying the unique message id.
+enum string headerId = "webhook-id";
+/// Canonical Standard Webhooks header carrying the unix-seconds timestamp.
+enum string headerTimestamp = "webhook-timestamp";
+/// Canonical Standard Webhooks header carrying the space-delimited signatures.
+enum string headerSignature = "webhook-signature";
+
+/// The default timestamp tolerance: five minutes, applied symmetrically.
+enum long defaultToleranceSeconds = 5 * 60;
+
+/// The prefix that brands a base64 symmetric secret.
+private enum string secretPrefix = "whsec_";
+
+/// The only signature version this library produces and accepts. Entries with
+/// any other version (e.g. the spec's asymmetric `v1a`) are skipped, not
+/// errored, during verification — matching every reference library.
+private enum string signatureVersion = "v1";
+
+/**
+ * Signs and verifies Standard Webhooks payloads with a single shared secret.
+ *
+ * Construct from a `whsec_`-prefixed (or bare) base64 secret, or from raw key
+ * bytes via $(LREF fromRaw). The type is a lightweight value: copying it shares
+ * the immutable key.
+ */
+struct Webhook
+{
+	private immutable(ubyte)[] key;
+
+	/// The timestamp tolerance window in seconds. Public so callers may widen or
+	/// narrow it; defaults to $(LREF defaultToleranceSeconds) (five minutes).
+	long toleranceSeconds = defaultToleranceSeconds;
+
+	/**
+	 * Builds a `Webhook` from a base64 secret.
+	 *
+	 * The secret may carry the conventional `whsec_` prefix or omit it; either
+	 * way the remainder is base64-decoded to the HMAC key. Unpadded base64 is
+	 * accepted (the decoder pads it), so secrets that have had trailing `=`
+	 * stripped still work.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   with `WebhookError.emptySecret` for an empty string, or
+	 *   `WebhookError.invalidSecret` if the remainder is not valid base64.
+	 */
+	this(string secret)
+	{
+		this.key = decodeSecret(secret);
+	}
+
+	/**
+	 * Builds a `Webhook` directly from raw HMAC key bytes, bypassing the
+	 * `whsec_`/base64 convention. Use this when the key is already binary (for
+	 * example, freshly generated random bytes).
+	 */
+	static Webhook fromRaw(scope const(ubyte)[] key)
+	{
+		Webhook wh;
+		wh.key = key.idup;
+		return wh;
+	}
+
+	/**
+	 * Signs `payload` and returns a single versioned signature of the form
+	 * `v1,<base64>` — the value to place in (or append to) the
+	 * `webhook-signature` header.
+	 *
+	 * `timestamp` is unix seconds. The signed content is the literal
+	 * `{msgId}.{timestamp}.{payload}`, so the exact `timestamp` passed here must
+	 * also be the value sent in the `webhook-timestamp` header.
+	 */
+	string sign(string msgId, long timestamp, scope const(char)[] payload) const
+	{
+		return signatureVersion ~ "," ~ signRaw(msgId, timestamp.to!string, payload);
+	}
+
+	/// Convenience overload taking a `SysTime`; truncates to unix seconds.
+	string sign(string msgId, SysTime timestamp, scope const(char)[] payload) const
+	{
+		return sign(msgId, timestamp.toUnixTime(), payload);
+	}
+
+	/**
+	 * Signs `payload` and returns the three Standard Webhooks headers ready to
+	 * attach to an outgoing HTTP request: `webhook-id`, `webhook-timestamp` and
+	 * `webhook-signature`.
+	 */
+	string[string] signHeaders(string msgId, long timestamp, scope const(char)[] payload) const
+	{
+		return [
+			headerId: msgId,
+			headerTimestamp: timestamp.to!string,
+			headerSignature: sign(msgId, timestamp, payload),
+		];
+	}
+
+	/**
+	 * Verifies that `payload` carries a valid signature for the given headers
+	 * and that its timestamp is within tolerance of now.
+	 *
+	 * Header keys are matched case-insensitively. In addition to the canonical
+	 * `webhook-*` names, the Svix-branded `svix-id` / `svix-timestamp` /
+	 * `svix-signature` aliases are accepted as a fallback, so payloads from
+	 * Svix-powered senders verify without remapping.
+	 *
+	 * Returns: `payload` unchanged, for convenient chaining.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   if a required header is missing, the timestamp is unparseable or outside
+	 *   tolerance, or no signature matches.
+	 */
+	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
+	{
+		return verifyAt(payload, headers, currentUnixSeconds(), true);
+	}
+
+	/**
+	 * Like $(LREF verify) but skips the timestamp tolerance check entirely. Use
+	 * only when replay protection is handled elsewhere; it removes a key defence
+	 * of the scheme.
+	 */
+	const(char)[] verifyIgnoringTimestamp(scope return const(char)[] payload,
+			in string[string] headers) const
+	{
+		return verifyAt(payload, headers, currentUnixSeconds(), false);
+	}
+
+	/// Verifies against an explicit `now` (unix seconds). Exposed for
+	/// deterministic testing of the tolerance window.
+	package const(char)[] verifyAt(scope return const(char)[] payload,
+			in string[string] headers, long now, bool checkTimestamp) const
+	{
+		const msgId = lookupHeader(headers, headerId, "svix-id");
+		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
+		const sigHeader = lookupHeader(headers, headerSignature, "svix-signature");
+
+		if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
+			throw new WebhookVerificationException("Missing required headers",
+					WebhookError.missingHeaders);
+
+		if (checkTimestamp)
+			verifyTimestamp(tsHeader, now);
+
+		// The signed content uses the timestamp header string verbatim — not a
+		// reparsed integer — so a sender's exact formatting round-trips.
+		const expected = signRaw(msgId, tsHeader, payload);
+
+		size_t start = 0;
+		while (start <= sigHeader.length)
+		{
+			auto end = sigHeader.indexOf(' ', start);
+			const part = end < 0 ? sigHeader[start .. $] : sigHeader[start .. end];
+			if (matchPart(part, expected))
+				return payload;
+			if (end < 0)
+				break;
+			start = end + 1;
+		}
+
+		throw new WebhookVerificationException("No matching signature found", WebhookError.noMatch);
+	}
+
+	/// Returns true if `part` is a `v1` entry whose base64 signature matches
+	/// `expected` in constant time. Non-`v1` and malformed entries are skipped.
+	private static bool matchPart(scope const(char)[] part, scope const(char)[] expected)
+	{
+		const comma = part.indexOf(',');
+		if (comma < 0)
+			return false;
+		if (part[0 .. comma] != signatureVersion)
+			return false;
+		return constantTimeEquals(part[comma + 1 .. $], expected);
+	}
+
+	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
+	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const
+	{
+		auto content = msgId ~ "." ~ tsStr ~ "." ~ payload;
+		return hmacBase64(key, content);
+	}
+
+	/// Parses and tolerance-checks the timestamp header against `now`.
+	private void verifyTimestamp(scope const(char)[] tsHeader, long now) const
+	{
+		long ts;
+		try
+			ts = tsHeader.to!long;
+		catch (ConvException)
+			throw new WebhookVerificationException("Invalid Signature Headers",
+					WebhookError.invalidHeaders);
+
+		if (now - ts > toleranceSeconds)
+			throw new WebhookVerificationException("Message timestamp too old",
+					WebhookError.timestampTooOld);
+		if (ts - now > toleranceSeconds)
+			throw new WebhookVerificationException("Message timestamp too new",
+					WebhookError.timestampTooNew);
+	}
+}
+
+// --- Free helpers -----------------------------------------------------------
+
+/// Current unix time in seconds, in UTC.
+private long currentUnixSeconds() @safe
+{
+	return Clock.currTime(UTC()).toUnixTime();
+}
+
+/// Strips the `whsec_` prefix (if present), pads the remainder to a base64
+/// boundary, and decodes it to the HMAC key.
+private immutable(ubyte)[] decodeSecret(string secret) @safe
+{
+	if (secret.length == 0)
+		throw new WebhookVerificationException("Secret can't be empty.", WebhookError.emptySecret);
+
+	auto b64 = secret;
+	if (b64.length >= secretPrefix.length && b64[0 .. secretPrefix.length] == secretPrefix)
+		b64 = b64[secretPrefix.length .. $];
+
+	// Standard base64 wants `=` padding to a multiple of four; reference secrets
+	// are sometimes shipped unpadded, so restore the padding before decoding.
+	auto padded = b64.dup;
+	while (padded.length % 4 != 0)
+		padded ~= '=';
+
+	try
+		return Base64.decode(padded).idup;
+	catch (Exception)
+		throw new WebhookVerificationException("Invalid secret", WebhookError.invalidSecret);
+}
+
+/// HMAC-SHA256 of `content` under `key`, standard-base64 encoded (padded).
+private string hmacBase64(scope const(ubyte)[] key, scope const(char)[] content) @trusted
+{
+	auto mac = HMAC!SHA256(key);
+	mac.put(cast(const(ubyte)[]) content);
+	auto digest = mac.finish();
+	return Base64.encode(digest[]).idup;
+}
+
+/// Length-checked, non-short-circuiting byte comparison. A length mismatch
+/// returns immediately (as in every reference library); equal-length inputs are
+/// compared in time independent of where they first differ.
+private bool constantTimeEquals(scope const(char)[] a, scope const(char)[] b) @safe @nogc nothrow pure
+{
+	if (a.length != b.length)
+		return false;
+	uint diff = 0;
+	foreach (i; 0 .. a.length)
+		diff |= cast(uint)(a[i] ^ b[i]);
+	return diff == 0;
+}
+
+/// Case-insensitive lookup returning the first header whose key matches any of
+/// `names` (which must be lowercase), or `null` if none is present.
+private string lookupHeader(in string[string] headers, scope const(string)[] names...) @safe
+{
+	foreach (key, value; headers)
+	{
+		const lowered = key.toLower;
+		foreach (name; names)
+			if (lowered == name)
+				return value;
+	}
+	return null;
+}
+
+// --- Tests ------------------------------------------------------------------
+// Golden vectors and edge cases ported from the official reference libraries.
+
+version (unittest)
+{
+	// The canonical reference vector (Python `test_sign_function`).
+	private enum vecSecret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+	private enum vecId = "msg_p5jXN8AQM9LWM0D4loKWxJek";
+	private enum vecTimestamp = 1_614_265_330L;
+	private enum vecPayload = `{"test": 2432232314}`;
+	private enum vecSignature = "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=";
+}
+
+/// sign() reproduces the canonical reference vector exactly.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	assert(wh.sign(vecId, vecTimestamp, vecPayload) == vecSignature);
+}
+
+/// A second independent reference vector (Rust `test_sign`).
+@safe unittest
+{
+	auto wh = Webhook("whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD");
+	auto sig = wh.sign("msg_27UH4WbU6Z5A5EzD8u03UvzRbpk", 1_649_367_553L,
+			`{"email":"test@example.com","username":"test_user"}`);
+	assert(sig == "v1,tZ1I4/hDygAJgO5TYxiSd6Sd0kDW6hPenDe+bTa3Kkw=");
+}
+
+/// verify() accepts a payload signed with the same secret.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// A secret without the `whsec_` prefix decodes identically.
+@safe unittest
+{
+	auto prefixed = Webhook(vecSecret);
+	auto bare = Webhook("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+	assert(prefixed.sign(vecId, vecTimestamp, vecPayload) == bare.sign(vecId,
+			vecTimestamp, vecPayload));
+}
+
+/// An unpadded base64 secret still verifies (Python
+/// `test_signature_verification_with_unpadded_secret`).
+@safe unittest
+{
+	// "test-key" base64 is "dGVzdC1rZXk=" (one pad char); strip it.
+	auto padded = Webhook("whsec_dGVzdC1rZXk=");
+	auto unpadded = Webhook("whsec_dGVzdC1rZXk");
+	assert(padded.sign(vecId, vecTimestamp, vecPayload) == unpadded.sign(vecId,
+			vecTimestamp, vecPayload));
+}
+
+/// fromRaw() signs with the key bytes directly (no base64 decode).
+@safe unittest
+{
+	immutable(ubyte)[] raw = [1, 2, 3, 4, 5, 6, 7, 8];
+	auto wh = Webhook.fromRaw(raw);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// An empty secret is rejected.
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	assertThrown!WebhookVerificationException(Webhook(""));
+}
+
+/// A tampered signature does not verify (the reference negative vector flips the
+/// final base64 character, `1OE=` -> `1OA=`).
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OA=",
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// A valid signature is found among multiple space-delimited entries, including
+/// a decoy with an unknown version.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload); // "v1,...."
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v2,bogus " ~ good ~ " v1,AAAA",
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// All-decoy signatures fail.
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v2,bogus v1,AAAA",
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// Malformed entries (no comma, empty signature) are skipped without crashing.
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "novalue v1,",
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// A missing `webhook-id` header is rejected.
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerTimestamp: vecTimestamp.to!string, headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyError(wh, headers);
+	assert(ex.error == WebhookError.missingHeaders);
+}
+
+/// A missing `webhook-timestamp` header is rejected.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [headerId: vecId, headerSignature: vecSignature];
+	auto ex = collectVerifyError(wh, headers);
+	assert(ex.error == WebhookError.missingHeaders);
+}
+
+/// A missing `webhook-signature` header is rejected.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string
+	];
+	auto ex = collectVerifyError(wh, headers);
+	assert(ex.error == WebhookError.missingHeaders);
+}
+
+/// A non-numeric timestamp is rejected as invalid headers.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: "not-a-number",
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyError(wh, headers, true);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
+/// A timestamp 301s in the past is rejected (tolerance is 300s).
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	auto ex = collectVerifyErrorAt(wh, headers, vecTimestamp + 301);
+	assert(ex.error == WebhookError.timestampTooOld);
+}
+
+/// A timestamp 301s in the future is rejected.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	auto ex = collectVerifyErrorAt(wh, headers, vecTimestamp - 301);
+	assert(ex.error == WebhookError.timestampTooNew);
+}
+
+/// Exactly 300s of skew (either direction) is accepted.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp + 300, true) == vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp - 300, true) == vecPayload);
+}
+
+/// Header keys are matched case-insensitively.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		"Webhook-Id": vecId, "Webhook-Timestamp": vecTimestamp.to!string,
+		"Webhook-Signature": vecSignature,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// Svix-branded header aliases are accepted as a fallback.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		"svix-id": vecId, "svix-timestamp": vecTimestamp.to!string,
+		"svix-signature": vecSignature,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// constantTimeEquals agrees with `==` on representative inputs.
+@safe unittest
+{
+	assert(constantTimeEquals("abc", "abc"));
+	assert(!constantTimeEquals("abc", "abd"));
+	assert(!constantTimeEquals("abc", "abcd"));
+	assert(constantTimeEquals("", ""));
+}
+
+version (unittest)
+{
+	private WebhookVerificationException collectVerifyError(in Webhook wh,
+			in string[string] headers, bool checkTs = false) @safe
+	{
+		import std.exception : collectException;
+
+		auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+				headers, vecTimestamp, checkTs));
+		assert(ex !is null, "expected a WebhookVerificationException");
+		return ex;
+	}
+
+	private WebhookVerificationException collectVerifyErrorAt(in Webhook wh,
+			in string[string] headers, long now) @safe
+	{
+		import std.exception : collectException;
+
+		auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+				headers, now, true));
+		assert(ex !is null, "expected a WebhookVerificationException");
+		return ex;
+	}
+}

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Standard Webhooks specification
+    url: https://www.standardwebhooks.com/
+    about: The specification this library implements.
+  - name: Security vulnerability
+    url: https://github.com/Poita/standardwebhooks.d/security/advisories/new
+    about: Please report vulnerabilities privately, not as a public issue.

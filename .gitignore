@@ -1,0 +1,31 @@
+.dub/
+*.o
+*.obj
+*.a
+*.lib
+# dub build/test output binaries at the package root (named after the dub
+# package + config). Pattern-based so a package rename does not silently
+# un-ignore them.
+/standardwebhooks
+/standardwebhooks-*
+*-test-library
+*-test-application
+__test__*__
+dub.selections.json
+
+# generated API documentation (see scripts/gen-docs.sh)
+/docs/
+/site/
+docs.json
+__dummy.html
+
+# code coverage output (dub test --coverage) + lcov conversion
+*.lst
+lcov.info
+
+# built example binaries (each examples/<name>/ is its own dub package)
+examples/*/*-example
+examples/*/sign-verify
+
+# Claude Code agent/session state
+.claude/

@@ -1,0 +1,11 @@
+{
+	"name": "sign-verify",
+	"description": "Standard Webhooks sign-then-verify example",
+	"license": "Apache-2.0",
+	"targetType": "executable",
+	"dependencies": {
+		"standardwebhooks": {
+			"path": "../.."
+		}
+	}
+}

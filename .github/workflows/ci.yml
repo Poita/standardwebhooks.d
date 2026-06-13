@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  format-check:
+    name: dfmt format check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      # dfmt has no `--check` flag, so the idiom is format-in-place then fail if
+      # the working tree changed. The dfmt config lives in dfmt.json.
+      - name: Check formatting (dfmt)
+        run: |
+          dub run dfmt -- --inplace source/ vibe/ examples/
+          git diff --exit-code
+
+  dscanner-lint:
+    name: dscanner lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: D-Scanner static analysis
+        run: ./scripts/dscanner-lint.sh
+
+  build-and-test:
+    name: core ${{ matrix.compiler }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [ldc-latest, dmd-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        # DMD ships no macOS/arm64 build and macos-latest is Apple Silicon, so
+        # dmd-latest cannot install there; LDC covers macOS instead. On Windows
+        # we gate the core on LDC (the recommended production toolchain there).
+        exclude:
+          - compiler: dmd-latest
+            os: macos-latest
+          - compiler: dmd-latest
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.compiler }}
+
+      # The core library is Phobos-only — no system dependencies.
+      - name: Build (core)
+        run: dub build
+
+      - name: Test (core)
+        run: dub test
+
+  build-vibe:
+    name: vibe subpackage on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      # vibe-d:http pulls in vibe-d:tls / openssl. Ubuntu runners ship OpenSSL
+      # 3.x preinstalled; macOS needs it from Homebrew.
+      - name: Install OpenSSL 3.x (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      - name: Build vibe subpackage
+        run: dub build :vibe
+
+  example:
+    name: example (build + run)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      # The example signs a payload then verifies it, exiting non-zero on any
+      # mismatch — a self-checking end-to-end smoke test.
+      - name: Build + run example
+        run: dub run --root examples/sign-verify
+
+  coverage:
+    name: coverage to Codecov
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Test with coverage
+        run: dub test --coverage
+
+      - name: Convert coverage to lcov
+        run: bash scripts/cov-to-lcov.sh lcov.info
+
+      # On a PRIVATE repo this needs CODECOV_TOKEN in repo secrets AND the repo
+      # activated on codecov.io; on a PUBLIC repo it uploads tokenlessly.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

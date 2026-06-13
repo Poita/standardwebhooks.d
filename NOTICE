@@ -1,0 +1,11 @@
+standardwebhooks.d
+Copyright © 2026 Peter Alexander
+
+This product implements the Standard Webhooks specification
+(https://www.standardwebhooks.com/), which is licensed under the MIT License by
+the Standard Webhooks authors. The specification and its reference libraries
+live at https://github.com/standard-webhooks/standard-webhooks.
+
+This implementation is an independent work and is not affiliated with or endorsed
+by the Standard Webhooks project. It is distributed under the Apache License,
+Version 2.0 (see LICENSE).

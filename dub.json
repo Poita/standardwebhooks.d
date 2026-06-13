@@ -1,0 +1,41 @@
+{
+	"name": "standardwebhooks",
+	"description": "Standard Webhooks (standardwebhooks.com) signing and verification for D",
+	"homepage": "https://github.com/Poita/standardwebhooks.d",
+	"license": "Apache-2.0",
+	"copyright": "Copyright © 2026 Peter Alexander",
+	"authors": [
+		"Peter Alexander"
+	],
+	"toolchainRequirements": {
+		"frontend": ">=2.100.0",
+		"dmd": ">=2.100.0",
+		"ldc": ">=1.30.0"
+	},
+	"targetType": "library",
+	"sourcePaths": [
+		"source"
+	],
+	"importPaths": [
+		"source"
+	],
+	"subPackages": [
+		{
+			"name": "vibe",
+			"description": "vibe.d HTTP integration for standardwebhooks",
+			"targetType": "library",
+			"sourcePaths": [
+				"vibe"
+			],
+			"importPaths": [
+				"vibe"
+			],
+			"dependencies": {
+				"standardwebhooks": {
+					"path": "."
+				},
+				"vibe-d:http": "~>0.9.8"
+			}
+		}
+	]
+}

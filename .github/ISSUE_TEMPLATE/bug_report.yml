@@ -1,0 +1,38 @@
+name: Bug report
+description: Report incorrect signing or verification behaviour.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: >
+        A small D snippet using `Webhook`. If it relates to a signature
+        mismatch, include the secret (a throwaway one), id, timestamp, payload,
+        and the signature you got vs. expected.
+      render: d
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: standardwebhooks.d version and compiler (e.g. ldc-1.41).
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I am verifying the exact raw bytes I received (not a re-serialized payload).
+          required: false
+        - label: I confirmed the same input against another Standard Webhooks library, if possible.
+          required: false
