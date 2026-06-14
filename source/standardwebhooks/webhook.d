@@ -444,6 +444,19 @@ version (unittest)
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
 
+/// When both canonical and svix-* headers are present, the canonical values
+/// win regardless of map iteration order.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		"webhook-id": vecId, "svix-id": "wrong",
+		"webhook-timestamp": vecTimestamp.to!string, "svix-timestamp": "0",
+		"webhook-signature": vecSignature, "svix-signature": "v1,deadbeef",
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
 /// constantTimeEquals agrees with `==` on representative inputs.
 @safe unittest
 {

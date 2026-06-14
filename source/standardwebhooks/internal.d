@@ -36,19 +36,17 @@ long currentUnixSeconds()
 	return Clock.currTime(UTC()).toUnixTime();
 }
 
-/// Case-insensitive lookup returning the first header whose key matches any of
-/// `names` (which must be lowercase), or `null` if none is present. In addition
-/// to the canonical `webhook-*` names, callers pass the Svix-branded `svix-*`
-/// aliases as a fallback.
+/// Case-insensitive lookup returning the value for the first of `names` (which
+/// must be lowercase) that is present, or `null` if none is. `names` is scanned
+/// in priority order, so callers pass the canonical `webhook-*` name ahead of
+/// its Svix-branded `svix-*` alias and the canonical value wins whenever both
+/// headers are present.
 string lookupHeader(in string[string] headers, scope const(string)[] names...)
 {
-	foreach (key, value; headers)
-	{
-		const lowered = key.toLower;
-		foreach (name; names)
-			if (lowered == name)
+	foreach (name; names)
+		foreach (key, value; headers)
+			if (key.toLower == name)
 				return value;
-	}
 	return null;
 }
 
