@@ -36,6 +36,13 @@ long currentUnixSeconds()
 	return Clock.currTime(UTC()).toUnixTime();
 }
 
+/// The canonical Standard Webhooks header carrying the unique message id.
+enum string wireHeaderId = "webhook-id";
+/// The canonical Standard Webhooks header carrying the unix-seconds timestamp.
+enum string wireHeaderTimestamp = "webhook-timestamp";
+/// The canonical Standard Webhooks header carrying the space-delimited signatures.
+enum string wireHeaderSignature = "webhook-signature";
+
 /// Case-insensitive lookup returning the value for the first of `names` (which
 /// must be lowercase) that is present, or `null` if none is. `names` is scanned
 /// in priority order, so callers pass the canonical `webhook-*` name ahead of
@@ -48,6 +55,31 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 			if (key.toLower == name)
 				return value;
 	return null;
+}
+
+/// Runs the non-crypto preamble shared by both verification schemes: looks up
+/// the three required headers (canonical name then Svix alias), rejects a
+/// missing one, and — when `checkTimestamp` is set — tolerance-checks the
+/// timestamp against `now`. The looked-up header values are returned through the
+/// `out` parameters so each scheme can build and check its own signature once.
+///
+/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+///   `missingHeaders` if any required header is absent, or the timestamp errors
+///   raised by $(LREF verifyTimestamp).
+void requireHeaders(in string[string] headers, long now, bool checkTimestamp,
+		long toleranceSeconds, out const(char)[] msgId, out const(char)[] tsHeader,
+		out const(char)[] sigHeader)
+{
+	msgId = lookupHeader(headers, wireHeaderId, "svix-id");
+	tsHeader = lookupHeader(headers, wireHeaderTimestamp, "svix-timestamp");
+	sigHeader = lookupHeader(headers, wireHeaderSignature, "svix-signature");
+
+	if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
+		throw new WebhookVerificationException("Missing required headers",
+				WebhookError.missingHeaders);
+
+	if (checkTimestamp)
+		verifyTimestamp(tsHeader, now, toleranceSeconds);
 }
 
 /// Parses and tolerance-checks a timestamp header against `now`.
@@ -192,6 +224,74 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 }
 
 // --- Tests ---
+
+@safe unittest
+{
+	// requireHeaders returns the looked-up values through its out parameters.
+	string[string] headers = [
+		"webhook-id": "msg_1", "webhook-timestamp": "100",
+		"webhook-signature": "v1,AAAA"
+	];
+	const(char)[] msgId, tsHeader, sigHeader;
+	requireHeaders(headers, 100, true, 300, msgId, tsHeader, sigHeader);
+	assert(msgId == "msg_1");
+	assert(tsHeader == "100");
+	assert(sigHeader == "v1,AAAA");
+}
+
+@safe unittest
+{
+	// requireHeaders accepts the Svix-branded aliases as a fallback.
+	string[string] headers = [
+		"svix-id": "msg_2", "svix-timestamp": "200", "svix-signature": "v1,BBBB"
+	];
+	const(char)[] msgId, tsHeader, sigHeader;
+	requireHeaders(headers, 200, true, 300, msgId, tsHeader, sigHeader);
+	assert(msgId == "msg_2");
+	assert(tsHeader == "200");
+	assert(sigHeader == "v1,BBBB");
+}
+
+@safe unittest
+{
+	import std.exception : collectException;
+
+	// A missing required header is reported as missingHeaders.
+	string[string] headers = ["webhook-id": "msg_3", "webhook-timestamp": "300"];
+	const(char)[] msgId, tsHeader, sigHeader;
+	auto ex = collectException!WebhookVerificationException(requireHeaders(headers,
+			300, true, 300, msgId, tsHeader, sigHeader));
+	assert(ex !is null);
+	assert(ex.error == WebhookError.missingHeaders);
+}
+
+@safe unittest
+{
+	import std.exception : collectException;
+
+	// requireHeaders tolerance-checks the timestamp when checkTimestamp is set.
+	string[string] headers = [
+		"webhook-id": "msg_4", "webhook-timestamp": "100",
+		"webhook-signature": "v1,AAAA"
+	];
+	const(char)[] msgId, tsHeader, sigHeader;
+	auto ex = collectException!WebhookVerificationException(requireHeaders(headers,
+			100_000, true, 300, msgId, tsHeader, sigHeader));
+	assert(ex !is null);
+	assert(ex.error == WebhookError.timestampTooOld);
+}
+
+@safe unittest
+{
+	// A far-out-of-window timestamp is accepted when checkTimestamp is false.
+	string[string] headers = [
+		"webhook-id": "msg_5", "webhook-timestamp": "100",
+		"webhook-signature": "v1,AAAA"
+	];
+	const(char)[] msgId, tsHeader, sigHeader;
+	requireHeaders(headers, 100_000, false, 300, msgId, tsHeader, sigHeader);
+	assert(tsHeader == "100");
+}
 
 @safe unittest
 {

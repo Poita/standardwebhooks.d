@@ -37,11 +37,11 @@ import standardwebhooks.internal;
 @safe:
 
 /// Canonical Standard Webhooks header carrying the unique message id.
-enum string headerId = "webhook-id";
+enum string headerId = wireHeaderId;
 /// Canonical Standard Webhooks header carrying the unix-seconds timestamp.
-enum string headerTimestamp = "webhook-timestamp";
+enum string headerTimestamp = wireHeaderTimestamp;
 /// Canonical Standard Webhooks header carrying the space-delimited signatures.
-enum string headerSignature = "webhook-signature";
+enum string headerSignature = wireHeaderSignature;
 
 /// The default timestamp tolerance: five minutes, applied symmetrically.
 enum long defaultToleranceSeconds = 5 * 60;
@@ -173,16 +173,8 @@ struct Webhook
 	package const(char)[] verifyAt(scope return const(char)[] payload,
 			in string[string] headers, long now, bool checkTimestamp) const scope
 	{
-		const msgId = lookupHeader(headers, headerId, "svix-id");
-		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
-		const sigHeader = lookupHeader(headers, headerSignature, "svix-signature");
-
-		if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
-			throw new WebhookVerificationException("Missing required headers",
-					WebhookError.missingHeaders);
-
-		if (checkTimestamp)
-			verifyTimestamp(tsHeader, now, toleranceSeconds);
+		const(char)[] msgId, tsHeader, sigHeader;
+		requireHeaders(headers, now, checkTimestamp, toleranceSeconds, msgId, tsHeader, sigHeader);
 
 		// The signed content uses the timestamp header string verbatim — not a
 		// reparsed integer — so a sender's exact formatting round-trips.
@@ -198,7 +190,8 @@ struct Webhook
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
-	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const scope
+	private string signRaw(scope const(char)[] msgId, scope const(char)[] tsStr,
+			scope const(char)[] payload) const scope
 	{
 		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
