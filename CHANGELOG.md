@@ -6,26 +6,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `WebhookError.cryptoFailure`, reported when an ed25519/libsodium primitive or
+  initialisation fails, distinct from caller-input error codes.
+- Tests for the vibe subpackage helpers and the real-clock `verify()` path of
+  the asymmetric scheme; the signature-entry cap is now pinned by a test.
+- Documentation of the signature-entry cap, the `toleranceSeconds` contract,
+  the asymmetric throwing contracts, and Windows/libsodium setup.
+
 ### Changed
 
 - `lookupHeader` now prefers the canonical header over its `svix-*` alias
   deterministically when both are present, instead of depending on map
   iteration order.
+- libsodium's one-time initialisation guard uses acquire/release atomics.
+- Asymmetric `v1a` signatures must be canonical padded base64, matching `v1`
+  and the specification.
 
 ### Fixed
 
 - The vibe.d `verifyRequest` helper reads the raw request body and verifies the
   exact bytes received, so payloads survive verification unchanged.
 - `verifyTimestamp` guards against extreme or overflowing timestamp values
-  rather than wrapping the tolerance arithmetic.
+  rather than wrapping the tolerance arithmetic, and reports a non-UTF-8
+  timestamp header as invalid headers instead of an unhandled exception.
 - The signature header parser caps the number of `v1` entries it examines,
   bounding work on adversarially large headers.
 - `AsymmetricWebhook.fromSeed` returns the constructed value as documented.
+- Crypto and library failures report `WebhookError.cryptoFailure` instead of
+  unrelated caller-input error codes.
+- Coverage is measured per target in CI so shared `.lst` files no longer
+  clobber one another, and the test suite compiles under
+  `-preview=dip1000 -preview=in`.
 
 ### Security
 
 - libsodium is initialised lazily on first asymmetric use, keeping the
   dependency-free core free of load-time side effects.
+- Malformed base64 in an attacker-controlled signature (or a corrupt secret) is
+  rejected cleanly instead of aborting the process through an uncatchable error.
+- The vibe.d integration depends on `vibe-d:http` 0.10.x, moving off a frozen
+  0.9.x release that overlaps an HTTP request-smuggling advisory
+  (GHSA-hm69-r6ch-92wx); HTTP-framing fixes require a manual constraint bump
+  because dub `~>` will not cross the minor boundary.
+- The asymmetric subpackage rejects a libsodium too old to provide the detached
+  ed25519 API it calls.
 
 ## [0.1.0] - 2026-06-14
 

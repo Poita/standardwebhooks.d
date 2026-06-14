@@ -176,7 +176,7 @@ struct AsymmetricWebhook
 	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   with `signingKeyRequired` if this is a verify-only instance, or with
-	 *   `invalidSecret` if libsodium fails to initialise.
+	 *   `cryptoFailure` if libsodium fails to initialise.
 	 */
 	string sign(string msgId, long timestamp, scope const(char)[] payload) const
 	{
