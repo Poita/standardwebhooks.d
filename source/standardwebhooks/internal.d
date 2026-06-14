@@ -145,7 +145,7 @@ immutable(ubyte)[] decodeStdBase64(scope const(char)[] s)
 /// True when `s` is well-formed, fully-padded standard base64: its length is a
 /// multiple of four, every character is in the standard alphabet (or a trailing
 /// `=`), and any `=` appears only as the final one or two characters.
-bool isWellFormedStdBase64(scope const(char)[] s)
+bool isWellFormedStdBase64(scope const(char)[] s) @safe @nogc nothrow pure
 {
 	if (s.length % 4 != 0)
 		return false;
@@ -232,4 +232,16 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 {
 	// Explicitly padded input decodes to the same bytes as its unpadded form.
 	assert(decodeStdBase64("Zm8=") == cast(immutable(ubyte)[]) "fo");
+}
+
+@safe unittest
+{
+	// The leaf predicate is callable in a pure nothrow @nogc context.
+	static bool callInRestrictedContext() @safe @nogc nothrow pure
+	{
+		return isWellFormedStdBase64("Zm9v");
+	}
+
+	assert(__traits(compiles, callInRestrictedContext()));
+	assert(callInRestrictedContext());
 }
