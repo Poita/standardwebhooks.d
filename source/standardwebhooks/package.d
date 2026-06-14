@@ -7,7 +7,7 @@
  * header-name constants, the
  * $(REF VerifyResult, standardwebhooks,exception) returned by the non-throwing
  * `tryVerify` family, and the
- * $(REF WebhookVerificationException, standardwebhooks,exception) error type.
+ * $(REF WebhookException, standardwebhooks,exception) error type.
  *
  * The core has no third-party dependencies. For vibe.d HTTP integration, depend
  * on the `standardwebhooks:vibe` subpackage and `import standardwebhooks.vibe;`.

@@ -170,7 +170,7 @@ bool checkTimestamp(scope const(char)[] tsHeader, long now,
 }
 
 /// Returns the verified payload from a successful `VerifyResult`, or throws a
-/// $(REF WebhookVerificationException, standardwebhooks,exception) carrying the
+/// $(REF WebhookException, standardwebhooks,exception) carrying the
 /// result's `error`. The throwing `verify` family is implemented on top of the
 /// non-throwing `tryVerify` family through this helper, so both stay in
 /// lock-step.
@@ -179,7 +179,7 @@ const(char)[] throwOnFailure(return scope VerifyResult result)
 	if (result.ok)
 		return result.payload;
 
-	throw new WebhookVerificationException(messageFor(result.error), result.error);
+	throw new WebhookException(messageFor(result.error), result.error);
 }
 
 /// The human-readable message paired with each `WebhookError` cause, used when a
@@ -301,13 +301,13 @@ bool isWellFormedStdBase64(scope const(char)[] s) @safe @nogc nothrow pure
 /// Strips `prefix` from `value` (if present) and base64-decodes the remainder to
 /// raw key bytes.
 ///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+/// Throws: $(REF WebhookException, standardwebhooks,exception) with
 ///   `emptySecret` for an empty `value`, or `invalidSecret` if the remainder is
 ///   not valid base64.
 immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 {
 	if (value.length == 0)
-		throw new WebhookVerificationException("Secret can't be empty.", WebhookError.emptySecret);
+		throw new WebhookException("Secret can't be empty.", WebhookError.emptySecret);
 
 	auto b64 = value;
 	if (b64.length >= prefix.length && b64[0 .. prefix.length] == prefix)
@@ -316,7 +316,7 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 	try
 		return decodeStdBase64(b64);
 	catch (Exception)
-		throw new WebhookVerificationException("Invalid secret", WebhookError.invalidSecret);
+		throw new WebhookException("Invalid secret", WebhookError.invalidSecret);
 }
 
 // --- Tests ---

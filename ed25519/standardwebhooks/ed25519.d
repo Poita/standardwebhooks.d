@@ -78,7 +78,7 @@ struct AsymmetricWebhook
 	 * A `whsk_` key yields an instance that can both sign and verify; a `whpk_`
 	 * key yields a verify-only instance.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `emptySecret` for an empty string, or `invalidSecret` if the prefix
 	 *   is unrecognised, the base64 is malformed, or the decoded key is the wrong
 	 *   length.
@@ -86,13 +86,13 @@ struct AsymmetricWebhook
 	this(string key)
 	{
 		if (key.length == 0)
-			throw new WebhookVerificationException("Key can't be empty.", WebhookError.emptySecret);
+			throw new WebhookException("Key can't be empty.", WebhookError.emptySecret);
 
 		if (hasPrefix(key, signingKeyPrefix))
 		{
 			auto bytes = decodePrefixedKey(key, signingKeyPrefix);
 			if (bytes.length != secretKeyBytes)
-				throw new WebhookVerificationException("Invalid ed25519 signing key length",
+				throw new WebhookException("Invalid ed25519 signing key length",
 						WebhookError.invalidSecret);
 			this.secretKey = bytes;
 			this.publicKey = bytes[seedBytes .. $];
@@ -101,13 +101,12 @@ struct AsymmetricWebhook
 		{
 			auto bytes = decodePrefixedKey(key, publicKeyPrefix);
 			if (bytes.length != publicKeyBytes)
-				throw new WebhookVerificationException("Invalid ed25519 public key length",
+				throw new WebhookException("Invalid ed25519 public key length",
 						WebhookError.invalidSecret);
 			this.publicKey = bytes;
 		}
 		else
-			throw new WebhookVerificationException(
-					"Asymmetric key must be prefixed with whsk_ or whpk_",
+			throw new WebhookException("Asymmetric key must be prefixed with whsk_ or whpk_",
 					WebhookError.invalidSecret);
 	}
 
@@ -120,14 +119,13 @@ struct AsymmetricWebhook
 	 * constructed directly from an existing secret string or raw key bytes via
 	 * its `fromRaw`.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `invalidSecret` if `seed` is not exactly 32 bytes.
 	 */
 	static AsymmetricWebhook fromSeed(scope const(ubyte)[] seed)
 	{
 		if (seed.length != seedBytes)
-			throw new WebhookVerificationException("ed25519 seed must be 32 bytes",
-					WebhookError.invalidSecret);
+			throw new WebhookException("ed25519 seed must be 32 bytes", WebhookError.invalidSecret);
 
 		ubyte[publicKeyBytes] pk;
 		ubyte[secretKeyBytes] sk;
@@ -135,8 +133,7 @@ struct AsymmetricWebhook
 				ensureSodiumInitialised();
 				return crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
 			}() != 0)
-			throw new WebhookVerificationException("ed25519 key derivation failed",
-					WebhookError.cryptoFailure);
+			throw new WebhookException("ed25519 key derivation failed", WebhookError.cryptoFailure);
 
 		AsymmetricWebhook wh;
 		wh.publicKey = pk.idup;
@@ -149,13 +146,13 @@ struct AsymmetricWebhook
 	 * key, sparing the caller the base64-encode-then-decode round trip of the
 	 * `whpk_` string constructor.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `invalidSecret` if `pk` is not exactly 32 bytes.
 	 */
 	static AsymmetricWebhook fromRawPublicKey(scope const(ubyte)[] pk)
 	{
 		if (pk.length != publicKeyBytes)
-			throw new WebhookVerificationException("ed25519 public key must be 32 bytes",
+			throw new WebhookException("ed25519 public key must be 32 bytes",
 					WebhookError.invalidSecret);
 
 		AsymmetricWebhook wh;
@@ -168,13 +165,13 @@ struct AsymmetricWebhook
 	 * secret key in the libsodium `seed ‖ public_key` layout, sparing the caller
 	 * the base64-encode-then-decode round trip of the `whsk_` string constructor.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `invalidSecret` if `sk` is not exactly 64 bytes.
 	 */
 	static AsymmetricWebhook fromRawSecretKey(scope const(ubyte)[] sk)
 	{
 		if (sk.length != secretKeyBytes)
-			throw new WebhookVerificationException("ed25519 secret key must be 64 bytes",
+			throw new WebhookException("ed25519 secret key must be 64 bytes",
 					WebhookError.invalidSecret);
 
 		AsymmetricWebhook wh;
@@ -214,7 +211,7 @@ struct AsymmetricWebhook
 	/**
 	 * The signing key in `whsk_`-prefixed base64 form.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `signingKeyRequired` if this is a verify-only instance.
 	 */
 	string signingKeyEncoded() const
@@ -228,7 +225,7 @@ struct AsymmetricWebhook
 	 * `v1a,<base64>` — the value to place in (or append to) the
 	 * `webhook-signature` header.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `signingKeyRequired` if this is a verify-only instance, or with
 	 *   `cryptoFailure` if libsodium fails to initialise.
 	 */
@@ -267,13 +264,13 @@ struct AsymmetricWebhook
 	 *
 	 * Returns: `payload` unchanged, for convenient chaining.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   if a required header is missing, the timestamp is unparseable or outside
 	 *   tolerance, no signature matches, or libsodium fails to initialise.
 	 *
 	 * A blanket `catch -> 400` is wrong here: a `cryptoFailure` cause is a
 	 * server/library fault and should map to a 5xx, not a 400. Branch on
-	 * `WebhookVerificationException.error` to distinguish it from the bad-request
+	 * `WebhookException.error` to distinguish it from the bad-request
 	 * causes.
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
@@ -285,7 +282,7 @@ struct AsymmetricWebhook
 	 * Like $(LREF verify) but skips the timestamp tolerance check entirely. Use
 	 * only when replay protection is handled elsewhere.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   if a required header is missing, no signature matches, or libsodium fails
 	 *   to initialise.
 	 */
@@ -352,7 +349,7 @@ struct AsymmetricWebhook
 	private void requireSigningKey() const
 	{
 		if (secretKey.length == 0)
-			throw new WebhookVerificationException("A whsk_ signing key is required to sign",
+			throw new WebhookException("A whsk_ signing key is required to sign",
 					WebhookError.signingKeyRequired);
 	}
 }
@@ -373,7 +370,7 @@ struct AsymmetricWebhook
  *
  * Returns: `payload` unchanged, for convenient chaining.
  *
- * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+ * Throws: $(REF WebhookException, standardwebhooks,exception)
  *   if neither scheme accepts the payload.
  */
 const(char)[] verifyAny(in Webhook symmetric, in AsymmetricWebhook asymmetric,
@@ -386,7 +383,7 @@ const(char)[] verifyAny(in Webhook symmetric, in AsymmetricWebhook asymmetric,
  * Like $(LREF verifyAny) but skips the timestamp tolerance check on both
  * verifiers. Use only when replay protection is handled elsewhere.
  *
- * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+ * Throws: $(REF WebhookException, standardwebhooks,exception)
  *   if neither scheme accepts the payload.
  */
 const(char)[] verifyAnyIgnoringTimestamp(in Webhook symmetric,
@@ -403,7 +400,7 @@ package const(char)[] verifyAnyAt(in Webhook symmetric, in AsymmetricWebhook asy
 {
 	try
 		return symmetric.verifyAt(payload, headers, now, checkTimestamp);
-	catch (WebhookVerificationException)
+	catch (WebhookException)
 	{
 		// The symmetric scheme rejected the payload; fall through to the
 		// asymmetric scheme, whose exception is surfaced if it too rejects.
@@ -428,7 +425,7 @@ private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content
 	ulong siglen;
 	if (crypto_sign_detached(sig.ptr, &siglen,
 			cast(const(ubyte)*) content.ptr, content.length, sk.ptr) != 0)
-		throw new WebhookVerificationException("ed25519 signing failed", WebhookError.cryptoFailure);
+		throw new WebhookException("ed25519 signing failed", WebhookError.cryptoFailure);
 	assert(siglen == signatureBytes);
 	return Base64.encode(sig[0 .. siglen]).idup;
 }
@@ -536,8 +533,7 @@ version (unittest)
 	import std.exception : collectException;
 
 	ubyte[16] tooShort = 0;
-	auto ex = collectException!WebhookVerificationException(
-			AsymmetricWebhook.fromRawPublicKey(tooShort[]));
+	auto ex = collectException!WebhookException(AsymmetricWebhook.fromRawPublicKey(tooShort[]));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
@@ -558,8 +554,7 @@ version (unittest)
 	import std.exception : collectException;
 
 	ubyte[32] tooShort = 0;
-	auto ex = collectException!WebhookVerificationException(
-			AsymmetricWebhook.fromRawSecretKey(tooShort[]));
+	auto ex = collectException!WebhookException(AsymmetricWebhook.fromRawSecretKey(tooShort[]));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
@@ -581,7 +576,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: tampered,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A tampered payload does not verify against a valid signature.
@@ -594,8 +589,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: vecSignature,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(`{"test": 2432232315}`,
-			headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false));
 }
 
 /// A valid `v1a` signature is found alongside a symmetric `v1` decoy entry.
@@ -620,8 +614,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: vecSignature,
 	];
-	assertThrown!WebhookVerificationException(other.verifyAt(vecPayload,
-			headers, vecTimestamp, false));
+	assertThrown!WebhookException(other.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A verify-only instance cannot sign.
@@ -630,8 +623,7 @@ version (unittest)
 	import std.exception : collectException;
 
 	auto wh = AsymmetricWebhook(vecPublicKey);
-	auto ex = collectException!WebhookVerificationException(wh.sign(vecId,
-			vecTimestamp, vecPayload));
+	auto ex = collectException!WebhookException(wh.sign(vecId, vecTimestamp, vecPayload));
 	assert(ex !is null && ex.error == WebhookError.signingKeyRequired);
 }
 
@@ -641,7 +633,7 @@ version (unittest)
 	import std.exception : collectException;
 
 	auto wh = AsymmetricWebhook(vecPublicKey);
-	auto ex = collectException!WebhookVerificationException(wh.signingKeyEncoded());
+	auto ex = collectException!WebhookException(wh.signingKeyEncoded());
 	assert(ex !is null && ex.error == WebhookError.signingKeyRequired);
 }
 
@@ -650,7 +642,7 @@ version (unittest)
 {
 	import std.exception : collectException;
 
-	auto ex = collectException!WebhookVerificationException(
+	auto ex = collectException!WebhookException(
 			AsymmetricWebhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
@@ -660,7 +652,7 @@ version (unittest)
 {
 	import std.exception : collectException;
 
-	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook("whpk_AAAA"));
+	auto ex = collectException!WebhookException(AsymmetricWebhook("whpk_AAAA"));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
@@ -669,7 +661,7 @@ version (unittest)
 {
 	import std.exception : collectException;
 
-	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook(""));
+	auto ex = collectException!WebhookException(AsymmetricWebhook(""));
 	assert(ex !is null && ex.error == WebhookError.emptySecret);
 }
 
@@ -683,7 +675,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: vecSignature,
 	];
-	auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+	auto ex = collectException!WebhookException(wh.verifyAt(vecPayload,
 			headers, vecTimestamp + 301, true));
 	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
 }
@@ -715,7 +707,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: urlEncoded,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// Signing and verification work without an eager module ctor: libsodium is
@@ -759,7 +751,7 @@ version (unittest)
 	auto wh = AsymmetricWebhook(vecSigningKey);
 	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
 	auto headers = wh.signHeaders(vecId, old, vecPayload);
-	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	auto ex = collectException!WebhookException(wh.verify(vecPayload, headers));
 	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
 }
 
@@ -768,7 +760,7 @@ version (unittest)
 {
 	import std.exception : collectException;
 
-	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook("whsk_AAAA"));
+	auto ex = collectException!WebhookException(AsymmetricWebhook("whsk_AAAA"));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
@@ -778,7 +770,7 @@ version (unittest)
 	import std.exception : collectException;
 
 	ubyte[16] shortSeed = 0;
-	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook.fromSeed(shortSeed[]));
+	auto ex = collectException!WebhookException(AsymmetricWebhook.fromSeed(shortSeed[]));
 	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
@@ -789,7 +781,7 @@ version (unittest)
 
 	auto wh = AsymmetricWebhook(vecPublicKey);
 	string[string] headers = [headerId: vecId, headerSignature: vecSignature,];
-	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	auto ex = collectException!WebhookException(wh.verify(vecPayload, headers));
 	assert(ex !is null && ex.error == WebhookError.missingHeaders);
 }
 
@@ -809,7 +801,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: unpadded,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// tryVerify reports success with the payload for a valid v1a signature.
@@ -888,8 +880,8 @@ version (unittest)
 		headerSignature: vecSignature,
 	];
 	auto fromTry = wh.tryVerifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false);
-	auto ex = collectException!WebhookVerificationException(
-			wh.verifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false));
+	auto ex = collectException!WebhookException(wh.verifyAt(`{"test": 2432232315}`,
+			headers, vecTimestamp, false));
 	assert(!fromTry.ok);
 	assert(ex !is null && ex.error == fromTry.error);
 }
@@ -996,7 +988,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: "v1,AAAA",
 	];
-	auto ex = collectException!WebhookVerificationException(verifyAnyAt(symmetric,
+	auto ex = collectException!WebhookException(verifyAnyAt(symmetric,
 			asymmetric, vecPayload, headers, vecTimestamp, false));
 	assert(ex !is null && ex.error == WebhookError.noMatch);
 }
@@ -1014,7 +1006,7 @@ version (unittest)
 		headerSignature: vecSignature,
 	];
 	assert(verifyAnyAt(symmetric, asymmetric, vecPayload, headers, vecTimestamp, true) == vecPayload);
-	auto ex = collectException!WebhookVerificationException(verifyAnyAt(symmetric,
+	auto ex = collectException!WebhookException(verifyAnyAt(symmetric,
 			asymmetric, vecPayload, headers, vecTimestamp + 301, true));
 	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
 }

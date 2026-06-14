@@ -36,7 +36,7 @@ void main()
 	bool rejected;
 	try
 		wh.verifyIgnoringTimestamp(tampered, headers);
-	catch (WebhookVerificationException e)
+	catch (WebhookException e)
 	{
 		rejected = true;
 		writefln("Receiver: tampered payload rejected ✓ (%s)", e.error);

@@ -61,10 +61,11 @@ struct VerifyResult
 	const(char)[] payload;
 }
 
-/// Thrown by `Webhook.verify` (and the constructor, for a bad secret) when an
-/// operation cannot complete. The `error` field identifies the cause so callers
-/// can branch without parsing `msg`.
-class WebhookVerificationException : Exception
+/// Thrown whenever a signing, verification, or key operation cannot complete —
+/// by `verify`, by a constructor handed a bad secret or key, and by `sign` on a
+/// verify-only asymmetric instance. The `error` field identifies the cause so
+/// callers can branch without parsing `msg`.
+class WebhookException : Exception
 {
 	/// The machine-readable cause of the failure.
 	WebhookError error;
