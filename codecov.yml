@@ -15,10 +15,8 @@ coverage:
       default:
         informational: true
 
-# Exclude non-library code so the percentage reflects the shipped SDK only.
+# Exclude non-library code so the percentage reflects the library only.
 ignore:
-  - "source/**/*_test.d"   # in-repo test-only modules (reflection/public-surface/peer-roundtrip)
-  - "conformance/**"       # conformance harness
   - "examples/**"          # example programs
 
 # No PR comment spam; the badge + the Codecov UI are enough.
