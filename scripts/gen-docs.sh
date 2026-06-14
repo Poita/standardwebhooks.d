@@ -39,9 +39,9 @@ gen_with_adrdox() {
   echo ">> Generating docs with adrdox into '$OUTDIR' ..."
   rm -rf "$OUTDIR"
   mkdir -p "$OUTDIR"
-  # -i : generate a per-package index ; -o : output directory. Both the core
-  # (source/) and the vibe subpackage (vibe/) are documented.
-  "$ADRDOX_BIN" -i -o "$OUTDIR" source/standardwebhooks vibe/standardwebhooks
+  # -i : generate a per-package index ; -o : output directory. The core
+  # (source/) and both subpackages (vibe/, ed25519/) are documented.
+  "$ADRDOX_BIN" -i -o "$OUTDIR" source/standardwebhooks vibe/standardwebhooks ed25519/standardwebhooks
   echo ">> adrdox docs written to '$OUTDIR/'."
 }
 

@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Licensed under the MIT License (was Apache-2.0).
+
 ### Added
 
 - Initial release: a faithful Standard Webhooks (standardwebhooks.com)
@@ -23,6 +27,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cause.
 - Optional `standardwebhooks:vibe` subpackage: `verifyRequest` and `signRequest`
   helpers for vibe.d HTTP.
+- Optional `standardwebhooks:ed25519` subpackage: the spec's asymmetric `v1a`
+  scheme via libsodium. `AsymmetricWebhook` constructs from a `whsk_` signing key
+  or `whpk_` public key (or `fromSeed`), mirroring the `Webhook` API with
+  `sign`/`signHeaders`/`verify`/`verifyIgnoringTimestamp`, `publicKeyEncoded`,
+  `signingKeyEncoded`, and `canSign`. Verified against the Svix server's
+  `v1a` golden vector.
+- `WebhookError.signingKeyRequired`, thrown when signing with a verify-only
+  (`whpk_`) asymmetric key.
 - Unit tests covering both official reference vectors and the reference
   libraries' edge cases (missing/malformed headers, tampered and multi
   signatures, tolerance boundaries, prefix/padding variants).

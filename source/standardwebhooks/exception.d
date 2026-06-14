@@ -28,6 +28,9 @@ enum WebhookError
 	invalidSecret,
 	/// The secret string was empty.
 	emptySecret,
+	/// A signing operation was attempted with an asymmetric verify-only key
+	/// (a `whpk_` public key); a `whsk_` signing key is required to sign.
+	signingKeyRequired,
 }
 
 /// Thrown by `Webhook.verify` (and the constructor, for a bad secret) when an

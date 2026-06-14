@@ -23,9 +23,11 @@ __dummy.html
 *.lst
 lcov.info
 
-# built example binaries (each examples/<name>/ is its own dub package)
+# built example binaries (each examples/<name>/ is its own dub package, and dub
+# names the binary after the package, i.e. examples/<name>/<name>)
 examples/*/*-example
-examples/*/sign-verify
+examples/sign-verify/sign-verify
+examples/asymmetric/asymmetric
 
 # Claude Code agent/session state
 .claude/

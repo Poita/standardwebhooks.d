@@ -4,16 +4,18 @@
 [![codecov](https://codecov.io/gh/Poita/standardwebhooks.d/branch/main/graph/badge.svg)](https://codecov.io/gh/Poita/standardwebhooks.d)
 [![Dub version](https://img.shields.io/dub/v/standardwebhooks.svg)](https://code.dlang.org/packages/standardwebhooks)
 [![Dub downloads](https://img.shields.io/dub/dt/standardwebhooks.svg)](https://code.dlang.org/packages/standardwebhooks)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![API docs](https://img.shields.io/badge/docs-API%20reference-blue.svg)](https://poita.github.io/standardwebhooks.d/)
 
 A faithful [Standard Webhooks](https://www.standardwebhooks.com/) implementation
 for the D programming language — sign outgoing webhooks and verify incoming ones
 with HMAC-SHA256, constant-time comparison, and timestamp replay protection.
 
-The core is **dependency-free** (Phobos only). An optional
-[`standardwebhooks:vibe`](#vibed-integration) subpackage wires it directly into
-[vibe.d](https://vibed.org) HTTP requests.
+The core is **dependency-free** (Phobos only). Two optional subpackages extend
+it: [`standardwebhooks:vibe`](#vibed-integration) wires it directly into
+[vibe.d](https://vibed.org) HTTP requests, and
+[`standardwebhooks:ed25519`](#asymmetric-ed25519-signatures) adds the spec's
+asymmetric `v1a` signatures via libsodium.
 
 ## Why Standard Webhooks?
 
@@ -110,10 +112,11 @@ with SHA-256 under the decoded secret, then standard-base64 encoded. The
 (supporting zero-downtime secret rotation); verification succeeds if **any**
 `v1` entry matches in constant time. Entries with other versions are skipped.
 
-This library implements the symmetric (HMAC, `whsec_`, `v1`) scheme, which is
-what every official reference library ships. The spec's asymmetric `v1a`
-(ed25519) scheme is not implemented upstream and is treated as a skip-not-error
-here.
+The core implements the symmetric (HMAC, `whsec_`, `v1`) scheme, which is what
+every official reference library ships, and treats unknown versions (including
+`v1a`) as skip-not-error. The spec's asymmetric `v1a` (ed25519) scheme is
+available as the optional
+[`standardwebhooks:ed25519`](#asymmetric-ed25519-signatures) subpackage.
 
 ## vibe.d integration
 
@@ -148,6 +151,44 @@ For outgoing requests, `signRequest(wh, clientReq, id, timestamp, payload)` sets
 the three headers; send `payload` as the body so the signed bytes match the sent
 bytes.
 
+## Asymmetric (ed25519) signatures
+
+The spec also defines an **asymmetric** scheme (`v1a`): the sender signs with an
+ed25519 private key and receivers verify with the matching public key, so a
+leaked verifier cannot forge messages. This is provided by the optional
+`standardwebhooks:ed25519` subpackage, which links the system **libsodium** for
+the ed25519 primitives (so it is kept out of the dependency-free core).
+
+```sh
+# Install libsodium first: apt-get install libsodium-dev | brew install libsodium
+dub add standardwebhooks:ed25519
+```
+
+```d
+import standardwebhooks;
+import standardwebhooks.ed25519;
+
+// Sender holds a whsk_ signing key (or derive one from a 32-byte seed via
+// AsymmetricWebhook.fromSeed); it can both sign and verify.
+auto signer = AsymmetricWebhook("whsk_...");
+auto headers = signer.signHeaders("msg_2b3c", 1614265330, `{"event":"ping"}`);
+// signer.publicKeyEncoded() yields the whpk_ string to hand to receivers.
+
+// Receiver holds only the whpk_ public key; it can verify but never sign.
+auto verifier = AsymmetricWebhook("whpk_...");
+auto payload = verifier.verify(`{"event":"ping"}`, headers);
+```
+
+`AsymmetricWebhook` mirrors the `Webhook` API — `sign`, `signHeaders`, `verify`,
+`verifyIgnoringTimestamp`, and the `toleranceSeconds` field all behave the same,
+with the same case-insensitive/`svix-*` header handling and replay window. Keys
+use the Standard Webhooks serialisation: `whsk_` + base64 of the 64-byte
+`seed ‖ public_key`, and `whpk_` + base64 of the 32-byte public key. Calling
+`sign` on a verify-only (`whpk_`) instance throws with
+`WebhookError.signingKeyRequired`.
+
+See [`examples/asymmetric`](examples/asymmetric) for a runnable end-to-end demo.
+
 ## Security
 
 - **Constant-time comparison.** Signatures are compared without short-circuiting
@@ -174,5 +215,5 @@ huge file-descriptor limit — see [CONTRIBUTING.md](CONTRIBUTING.md).)
 
 ## License
 
-[Apache-2.0](LICENSE). The Standard Webhooks specification is MIT-licensed by its
+[MIT](LICENSE). The Standard Webhooks specification is also MIT-licensed by its
 authors; see [NOTICE](NOTICE).

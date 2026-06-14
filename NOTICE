@@ -7,5 +7,5 @@ the Standard Webhooks authors. The specification and its reference libraries
 live at https://github.com/standard-webhooks/standard-webhooks.
 
 This implementation is an independent work and is not affiliated with or endorsed
-by the Standard Webhooks project. It is distributed under the Apache License,
-Version 2.0 (see LICENSE).
+by the Standard Webhooks project. It is distributed under the MIT License (see
+LICENSE).
