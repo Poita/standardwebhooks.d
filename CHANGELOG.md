@@ -6,12 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-14
+
 ### Added
 
 - `tryVerify` and `tryVerifyIgnoringTimestamp` on `Webhook` and
   `AsymmetricWebhook`, returning a `VerifyResult { ok, error, payload }` instead
   of throwing, so a routine invalid inbound signature is ordinary control flow.
   The throwing `verify` family is implemented on top of these.
+- `tryVerifyAny` and `tryVerifyAnyIgnoringTimestamp`, non-throwing counterparts
+  to the dual-scheme `verifyAny` combinator, returning a `VerifyResult` so a
+  v1+v1a receiver can branch on the result instead of catching.
 - `WebhookError.cryptoFailure`, reported when an ed25519/libsodium primitive or
   initialisation fails, distinct from caller-input error codes.
 - Tests for the vibe subpackage helpers and the real-clock `verify()` path of
@@ -43,6 +48,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Coverage is measured per target in CI so shared `.lst` files no longer
   clobber one another, and the test suite compiles under
   `-preview=dip1000 -preview=in`.
+- A secret whose `whsec_` remainder decodes to no key bytes (e.g. `"whsec_"`)
+  is rejected at construction with `emptySecret`, matching `fromRaw` and the
+  fail-fast contract, instead of deferring the error to the first sign/verify.
+- `verifyAny` surfaces a symmetric-side configuration fault (`emptySecret`,
+  `invalidTolerance`) instead of masking it behind the asymmetric verifier, so
+  a misconfigured v1 verifier in a dual-scheme receiver is no longer silently
+  skipped.
+- `signDetached` validates the libsodium-returned signature length with a
+  runtime `cryptoFailure` check rather than an assertion elided under
+  `-release`.
 
 ### Security
 
@@ -54,6 +69,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   0.9.x release that overlaps an HTTP request-smuggling advisory
   (GHSA-hm69-r6ch-92wx); HTTP-framing fixes require a manual constraint bump
   because dub `~>` will not cross the minor boundary.
+- The vibe.d integration rejects requests carrying more than one of any
+  Standard Webhooks signature header (`webhook-*`/`svix-*`), so a duplicate
+  header can no longer be verified against a different value than the rest of
+  the application reads.
+- The transient ed25519 secret-key buffer built in `fromSeed` is wiped with
+  `sodium_memzero` once copied into the value, narrowing the window in which
+  signing-key material lingers in freed stack memory.
 
 ## [0.1.0] - 2026-06-14
 
@@ -86,5 +108,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   libraries' edge cases (missing/malformed headers, tampered and multi
   signatures, tolerance boundaries, prefix/padding variants).
 
-[Unreleased]: https://github.com/Poita/standardwebhooks.d/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Poita/standardwebhooks.d/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Poita/standardwebhooks.d/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Poita/standardwebhooks.d/releases/tag/v0.1.0
