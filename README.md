@@ -154,6 +154,11 @@ For outgoing requests, `signRequest(wh, clientReq, id, timestamp, payload)` sets
 the three headers; send `payload` as the body so the signed bytes match the sent
 bytes.
 
+Both helpers are templated on the verifier/signer type, so they bridge an
+[`AsymmetricWebhook`](#asymmetric-ed25519-signatures) just as well as a `Webhook`.
+Because the binding is structural, `standardwebhooks:vibe` keeps zero dependency
+on `standardwebhooks:ed25519`; symmetric-only users link no libsodium.
+
 ## Asymmetric (ed25519) signatures
 
 The spec also defines an **asymmetric** scheme (`v1a`): the sender signs with an
