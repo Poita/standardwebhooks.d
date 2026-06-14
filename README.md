@@ -212,6 +212,28 @@ use the Standard Webhooks serialisation: `whsk_` + base64 of the 64-byte
 
 See [`examples/asymmetric`](examples/asymmetric) for a runnable end-to-end demo.
 
+### Accepting both schemes (`v1` + `v1a`)
+
+A receiver that must accept either a symmetric `v1` or an asymmetric `v1a`
+signature builds one verifier of each and passes them to `verifyAny`. It tries
+the symmetric `Webhook` first, then the asymmetric `AsymmetricWebhook`, and
+returns the payload as soon as one accepts it — throwing only if neither does.
+
+```d
+import standardwebhooks;
+import standardwebhooks.ed25519;
+
+auto symmetric = Webhook("whsec_...");
+auto asymmetric = AsymmetricWebhook("whpk_...");
+
+// Accepts a v1 (HMAC) signature or a v1a (ed25519) one.
+auto payload = verifyAny(symmetric, asymmetric, body, headers);
+```
+
+`verifyAnyIgnoringTimestamp` is the replay-window-skipping counterpart, matching
+the per-verifier `verifyIgnoringTimestamp`. Each verifier applies its own
+`toleranceSeconds`.
+
 ## Security
 
 - **Constant-time comparison.** Signatures are compared without short-circuiting
