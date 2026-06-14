@@ -525,3 +525,61 @@ version (unittest)
 	auto wh = AsymmetricWebhook.fromSeed(seed);
 	assert(wh.publicKeyEncoded() == vecPublicKey);
 }
+
+/// The public verify() uses the real clock: a payload signed at the current time
+/// passes without an injected `now`.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	auto wh = AsymmetricWebhook(vecSigningKey);
+	const now = Clock.currTime(UTC()).toUnixTime();
+	auto headers = wh.signHeaders(vecId, now, vecPayload);
+	assert(wh.verify(vecPayload, headers) == vecPayload);
+}
+
+/// The public verify() rejects a payload whose timestamp is well outside the
+/// tolerance window of the real clock.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+	import std.exception : collectException;
+
+	auto wh = AsymmetricWebhook(vecSigningKey);
+	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
+	auto headers = wh.signHeaders(vecId, old, vecPayload);
+	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
+}
+
+/// A `whsk_` signing key of the wrong length is rejected.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook("whsk_AAAA"));
+	assert(ex !is null && ex.error == WebhookError.invalidSecret);
+}
+
+/// fromSeed() rejects a seed that is not 32 bytes.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	ubyte[16] shortSeed = 0;
+	auto ex = collectException!WebhookVerificationException(AsymmetricWebhook.fromSeed(shortSeed[]));
+	assert(ex !is null && ex.error == WebhookError.invalidSecret);
+}
+
+/// verify() rejects headers missing a required entry.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [headerId: vecId, headerSignature: vecSignature,];
+	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	assert(ex !is null && ex.error == WebhookError.missingHeaders);
+}

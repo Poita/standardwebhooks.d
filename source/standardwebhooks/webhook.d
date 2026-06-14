@@ -561,3 +561,38 @@ version (unittest)
 	];
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
+
+/// The entry cap is exactly 64: a genuine signature at the 65th position (after
+/// 64 decoys) is never examined, so verification fails.
+@safe unittest
+{
+	import std.array : join;
+	import std.exception : assertThrown;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(64).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// The entry cap is exactly 64: a genuine signature at the 64th position (after
+/// 63 decoys) is examined, so verification succeeds.
+@safe unittest
+{
+	import std.array : join;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(63).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
