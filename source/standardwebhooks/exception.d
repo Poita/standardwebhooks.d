@@ -30,8 +30,12 @@ enum WebhookError
 	emptySecret,
 	/// A signing operation was attempted with an asymmetric verify-only key
 	/// (a `whpk_` public key); a `whsk_` signing key is required to sign.
+	/// (raised only by standardwebhooks:ed25519)
 	signingKeyRequired,
 	/// An ed25519/libsodium primitive or its one-time initialisation failed.
+	/// (raised only by standardwebhooks:ed25519) Unlike the other causes, this
+	/// signals a server/library fault rather than a bad request, so a receiver
+	/// should map it to a 5xx, not a 400.
 	cryptoFailure,
 }
 

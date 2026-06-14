@@ -216,6 +216,11 @@ struct AsymmetricWebhook
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   if a required header is missing, the timestamp is unparseable or outside
 	 *   tolerance, no signature matches, or libsodium fails to initialise.
+	 *
+	 * A blanket `catch -> 400` is wrong here: a `cryptoFailure` cause is a
+	 * server/library fault and should map to a 5xx, not a 400. Branch on
+	 * `WebhookVerificationException.error` to distinguish it from the bad-request
+	 * causes.
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
 	{
