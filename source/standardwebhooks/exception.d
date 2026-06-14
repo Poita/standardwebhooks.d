@@ -35,6 +35,25 @@ enum WebhookError
 	cryptoFailure,
 }
 
+/// The outcome of a non-throwing verification. On success `ok` is true and
+/// `payload` holds the verified payload; on failure `ok` is false and `error`
+/// names the cause, with `payload` empty.
+///
+/// Returned by the `tryVerify` family on both
+/// $(REF Webhook, standardwebhooks,webhook) and
+/// $(REF AsymmetricWebhook, standardwebhooks,ed25519). An invalid inbound
+/// signature is routine control flow for a receiver, so this lets callers branch
+/// on `error` without a `catch`.
+struct VerifyResult
+{
+	/// Whether verification succeeded.
+	bool ok;
+	/// The cause when `ok` is false; unspecified when `ok` is true.
+	WebhookError error;
+	/// The verified payload when `ok` is true; empty otherwise.
+	const(char)[] payload;
+}
+
 /// Thrown by `Webhook.verify` (and the constructor, for a bad secret) when an
 /// operation cannot complete. The `error` field identifies the cause so callers
 /// can branch without parsing `msg`.

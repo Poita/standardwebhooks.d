@@ -50,12 +50,13 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 	return null;
 }
 
-/// Parses and tolerance-checks a timestamp header against `now`.
-///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
-///   `invalidHeaders` if `tsHeader` is not an integer, `timestampTooOld` if it
-///   precedes the window, or `timestampTooNew` if it follows the window.
-void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSeconds)
+/// Parses and tolerance-checks a timestamp header against `now` without
+/// throwing. Returns true when the timestamp is well-formed and within the
+/// window; on failure returns false and sets `error` to the cause
+/// (`invalidHeaders` if `tsHeader` is not an integer, `timestampTooOld` if it
+/// precedes the window, or `timestampTooNew` if it follows the window).
+bool checkTimestamp(scope const(char)[] tsHeader, long now,
+		long toleranceSeconds, out WebhookError error)
 {
 	long ts;
 	// A non-numeric value raises ConvException and invalid UTF-8 bytes raise
@@ -64,23 +65,72 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 	try
 		ts = tsHeader.to!long;
 	catch (Exception)
-		throw new WebhookVerificationException("Invalid Signature Headers",
-				WebhookError.invalidHeaders);
+	{
+		error = WebhookError.invalidHeaders;
+		return false;
+	}
 
 	// Unix seconds are never negative for any real sender; rejecting them up
 	// front keeps the `now - ts` / `ts - now` differences below from wrapping
 	// for a pathological near-`long.min` value, which would silently bypass the
 	// window. A negative timestamp is necessarily far before any plausible now.
 	if (ts < 0)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+	{
+		error = WebhookError.timestampTooOld;
+		return false;
+	}
 
 	if (now - ts > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+	{
+		error = WebhookError.timestampTooOld;
+		return false;
+	}
 	if (ts - now > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too new",
-				WebhookError.timestampTooNew);
+	{
+		error = WebhookError.timestampTooNew;
+		return false;
+	}
+	return true;
+}
+
+/// Returns the verified payload from a successful `VerifyResult`, or throws a
+/// $(REF WebhookVerificationException, standardwebhooks,exception) carrying the
+/// result's `error`. The throwing `verify` family is implemented on top of the
+/// non-throwing `tryVerify` family through this helper, so both stay in
+/// lock-step.
+const(char)[] throwOnFailure(return scope VerifyResult result)
+{
+	if (result.ok)
+		return result.payload;
+
+	throw new WebhookVerificationException(messageFor(result.error), result.error);
+}
+
+/// The human-readable message paired with each `WebhookError` cause, used when a
+/// failed `VerifyResult` is turned into a thrown exception.
+private string messageFor(WebhookError error)
+{
+	final switch (error)
+	{
+	case WebhookError.missingHeaders:
+		return "Missing required headers";
+	case WebhookError.invalidHeaders:
+		return "Invalid Signature Headers";
+	case WebhookError.timestampTooOld:
+		return "Message timestamp too old";
+	case WebhookError.timestampTooNew:
+		return "Message timestamp too new";
+	case WebhookError.noMatch:
+		return "No matching signature found";
+	case WebhookError.invalidSecret:
+		return "Invalid secret";
+	case WebhookError.emptySecret:
+		return "Secret can't be empty.";
+	case WebhookError.signingKeyRequired:
+		return "A whsk_ signing key is required to sign";
+	case WebhookError.cryptoFailure:
+		return "Cryptographic operation failed";
+	}
 }
 
 /// Upper bound on the number of space-delimited entries `anySignature` examines.

@@ -154,7 +154,7 @@ struct Webhook
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
 	{
-		return verifyAt(payload, headers, currentUnixSeconds(), true);
+		return throwOnFailure(tryVerify(payload, headers));
 	}
 
 	/**
@@ -165,7 +165,32 @@ struct Webhook
 	const(char)[] verifyIgnoringTimestamp(scope return const(char)[] payload,
 			in string[string] headers) const
 	{
-		return verifyAt(payload, headers, currentUnixSeconds(), false);
+		return throwOnFailure(tryVerifyIgnoringTimestamp(payload, headers));
+	}
+
+	/**
+	 * Verifies `payload` against `headers` without throwing, returning a
+	 * $(REF VerifyResult, standardwebhooks,exception). An invalid inbound
+	 * signature is routine control flow for a receiver, so callers branch on the
+	 * result's `error` instead of catching. The throwing $(LREF verify) is built
+	 * on this, so the two stay in lock-step.
+	 *
+	 * Header matching and the timestamp window behave exactly as in $(LREF verify).
+	 */
+	VerifyResult tryVerify(scope return const(char)[] payload, in string[string] headers) const
+	{
+		return tryVerifyAt(payload, headers, currentUnixSeconds(), true);
+	}
+
+	/**
+	 * Like $(LREF tryVerify) but skips the timestamp tolerance check entirely. Use
+	 * only when replay protection is handled elsewhere; it removes a key defence
+	 * of the scheme.
+	 */
+	VerifyResult tryVerifyIgnoringTimestamp(scope return const(char)[] payload,
+			in string[string] headers) const
+	{
+		return tryVerifyAt(payload, headers, currentUnixSeconds(), false);
 	}
 
 	/// Verifies against an explicit `now` (unix seconds). Exposed for
@@ -173,16 +198,27 @@ struct Webhook
 	package const(char)[] verifyAt(scope return const(char)[] payload,
 			in string[string] headers, long now, bool checkTimestamp) const scope
 	{
+		return throwOnFailure(tryVerifyAt(payload, headers, now, checkTimestamp));
+	}
+
+	/// The non-throwing verification core, against an explicit `now`. Exposed for
+	/// deterministic testing of the tolerance window.
+	package VerifyResult tryVerifyAt(scope return const(char)[] payload,
+			in string[string] headers, long now, bool checkTimestamp) const scope
+	{
 		const msgId = lookupHeader(headers, headerId, "svix-id");
 		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
 		const sigHeader = lookupHeader(headers, headerSignature, "svix-signature");
 
 		if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
-			throw new WebhookVerificationException("Missing required headers",
-					WebhookError.missingHeaders);
+			return VerifyResult(false, WebhookError.missingHeaders);
 
 		if (checkTimestamp)
-			verifyTimestamp(tsHeader, now, toleranceSeconds);
+		{
+			WebhookError tsError;
+			if (!.checkTimestamp(tsHeader, now, toleranceSeconds, tsError))
+				return VerifyResult(false, tsError);
+		}
 
 		// The signed content uses the timestamp header string verbatim — not a
 		// reparsed integer — so a sender's exact formatting round-trips.
@@ -192,9 +228,9 @@ struct Webhook
 			return version_ == signatureVersion && constantTimeEquals(signature, expected);
 		});
 		if (matched)
-			return payload;
+			return VerifyResult(true, WebhookError.init, payload);
 
-		throw new WebhookVerificationException("No matching signature found", WebhookError.noMatch);
+		return VerifyResult(false, WebhookError.noMatch);
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
@@ -503,6 +539,95 @@ version (unittest)
 		"webhook-signature": vecSignature, "svix-signature": "v1,deadbeef",
 	];
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// tryVerify reports success with the payload and no error for a valid signature.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	assert(result.ok);
+	assert(result.payload == vecPayload);
+}
+
+/// tryVerify reports failure (without throwing) for a tampered signature, naming
+/// noMatch as the cause.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OA=",
+	];
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	assert(!result.ok);
+	assert(result.error == WebhookError.noMatch);
+}
+
+/// tryVerify reports missingHeaders without throwing when a header is absent.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerTimestamp: vecTimestamp.to!string, headerSignature: vecSignature,
+	];
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	assert(!result.ok);
+	assert(result.error == WebhookError.missingHeaders);
+}
+
+/// tryVerify reports timestampTooOld without throwing for a stale timestamp.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp + 301, true);
+	assert(!result.ok);
+	assert(result.error == WebhookError.timestampTooOld);
+}
+
+/// tryVerifyIgnoringTimestamp accepts a stale timestamp, succeeding at the
+/// current clock without an injected `now`.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	auto result = wh.tryVerifyIgnoringTimestamp(vecPayload, headers);
+	assert(result.ok);
+	assert(result.payload == vecPayload);
+}
+
+/// The public tryVerify uses the real clock: a payload signed now succeeds.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	auto wh = Webhook(vecSecret);
+	const now = Clock.currTime(UTC()).toUnixTime();
+	auto headers = wh.signHeaders(vecId, now, vecPayload);
+	auto result = wh.tryVerify(vecPayload, headers);
+	assert(result.ok);
+	assert(result.payload == vecPayload);
+}
+
+/// The throwing verify() is built on tryVerify: when tryVerify fails, verify()
+/// throws an exception carrying the same WebhookError cause.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OA=",
+	];
+	auto fromTry = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+			headers, vecTimestamp, false));
+	assert(!fromTry.ok);
+	assert(ex !is null && ex.error == fromTry.error);
 }
 
 /// constantTimeEquals agrees with `==` on representative inputs.
