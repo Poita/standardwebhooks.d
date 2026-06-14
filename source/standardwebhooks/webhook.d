@@ -166,7 +166,7 @@ struct Webhook
 	/// Verifies against an explicit `now` (unix seconds). Exposed for
 	/// deterministic testing of the tolerance window.
 	package const(char)[] verifyAt(scope return const(char)[] payload,
-			in string[string] headers, long now, bool checkTimestamp) const
+			in string[string] headers, long now, bool checkTimestamp) const scope
 	{
 		const msgId = lookupHeader(headers, headerId, "svix-id");
 		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
@@ -193,7 +193,7 @@ struct Webhook
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
-	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const
+	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const scope
 	{
 		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
