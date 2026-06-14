@@ -176,11 +176,31 @@ jobs:
         with:
           compiler: ldc-latest
 
-      - name: Test with coverage
+      # The ed25519 coverage run links the system libsodium.
+      - name: Install libsodium
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev
+
+      # Core and ed25519 both compile source/standardwebhooks/internal.d, so
+      # each run emits source-standardwebhooks-internal.lst into the repo root.
+      # Run them one at a time, stashing each run's lcov and clearing the .lst
+      # files in between so the second run cannot clobber the first's coverage.
+      - name: Test core with coverage
         run: dub test --coverage
 
-      - name: Convert coverage to lcov
-        run: bash scripts/cov-to-lcov.sh lcov.info
+      - name: Convert core coverage to lcov
+        run: bash scripts/cov-to-lcov.sh lcov.core.info
+
+      - name: Clear core coverage artifacts
+        run: rm -f *.lst
+
+      - name: Test ed25519 with coverage
+        run: dub test :ed25519 --coverage
+
+      - name: Convert ed25519 coverage to lcov
+        run: bash scripts/cov-to-lcov.sh lcov.ed25519.info
+
+      - name: Merge per-target lcov
+        run: cat lcov.core.info lcov.ed25519.info > lcov.info
 
       # On a PRIVATE repo this needs CODECOV_TOKEN in repo secrets AND the repo
       # activated on codecov.io; on a PUBLIC repo it uploads tokenlessly.
