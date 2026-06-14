@@ -6,14 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- Licensed under the MIT License (was Apache-2.0).
+## [0.1.0] - 2026-06-14
 
 ### Added
 
 - Initial release: a faithful Standard Webhooks (standardwebhooks.com)
-  implementation for D.
+  implementation for D, licensed under the MIT License.
 - `Webhook` value type with `sign`, `signHeaders`, `verify`, and
   `verifyIgnoringTimestamp`.
 - Construction from a `whsec_`-prefixed or bare base64 secret (padded or
@@ -39,4 +37,5 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   libraries' edge cases (missing/malformed headers, tampered and multi
   signatures, tolerance boundaries, prefix/padding variants).
 
-[Unreleased]: https://github.com/Poita/standardwebhooks.d/commits/main
+[Unreleased]: https://github.com/Poita/standardwebhooks.d/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Poita/standardwebhooks.d/releases/tag/v0.1.0
