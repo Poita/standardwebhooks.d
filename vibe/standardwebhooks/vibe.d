@@ -46,12 +46,17 @@ import standardwebhooks;
  * Reads the raw body of `req`, extracts the Standard Webhooks headers, and
  * verifies the signature and timestamp.
  *
+ * `Wh` is any verifier exposing a `verify(payload, headers)` method, so both the
+ * symmetric $(REF Webhook, standardwebhooks,webhook) and the asymmetric
+ * $(REF AsymmetricWebhook, standardwebhooks,ed25519) bind. Lazy template
+ * instantiation keeps this subpackage free of any dependency on `:ed25519`.
+ *
  * Returns: the verified raw payload (the request body), ready to parse.
  *
  * Throws: $(REF WebhookVerificationException, standardwebhooks,exception) if the
  *   request is missing headers or the signature/timestamp does not verify.
  */
-const(char)[] verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe
+const(char)[] verifyRequest(Wh)(in Wh wh, scope HTTPServerRequest req) @safe
 {
 	// Read the raw body bytes: signature verification must run over the exact
 	// bytes received. UTF-8 validation or BOM stripping would alter them.
@@ -63,8 +68,13 @@ const(char)[] verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe
  * Signs `payload` and sets the `webhook-id`, `webhook-timestamp` and
  * `webhook-signature` headers on `req`. Does not write the body; send `payload`
  * as the request body yourself so the bytes signed match the bytes sent.
+ *
+ * `Wh` is any signer exposing a `sign(msgId, timestamp, payload)` method, so both
+ * the symmetric $(REF Webhook, standardwebhooks,webhook) and the asymmetric
+ * $(REF AsymmetricWebhook, standardwebhooks,ed25519) bind without this subpackage
+ * depending on `:ed25519`.
  */
-void signRequest(in Webhook wh, scope HTTPClientRequest req, string msgId,
+void signRequest(Wh)(in Wh wh, scope HTTPClientRequest req, string msgId,
 		long timestamp, scope const(char)[] payload) @safe
 {
 	req.headers[headerId] = msgId;
@@ -144,4 +154,35 @@ package string[string] toAA(in InetHeaderMap headers) @safe
 	headers.addField(headerSignature, signature);
 
 	assert(wh.verifyIgnoringTimestamp(payload, toAA(headers)) == payload);
+}
+
+version (unittest)
+{
+	/// A stand-in for the asymmetric `AsymmetricWebhook`: it exposes the same
+	/// `verify`/`sign` shape the templated helpers bind to, so the `:vibe` bridge
+	/// works for asymmetric verifiers without this subpackage depending on
+	/// `:ed25519`.
+	private struct FakeAsymmetricWebhook
+	{
+		const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const @safe
+		{
+			return payload;
+		}
+
+		string sign(string msgId, long timestamp, scope const(char)[] payload) const @safe
+		{
+			return "v1a,fake";
+		}
+	}
+}
+
+/// The templated helpers bind to any verifier/signer exposing the asymmetric
+/// `verify`/`sign` shape, so `:ed25519`'s `AsymmetricWebhook` gets the bridge
+/// without `:vibe` depending on `:ed25519`.
+@safe unittest
+{
+	static assert(__traits(compiles, verifyRequest(FakeAsymmetricWebhook.init,
+			HTTPServerRequest.init)));
+	static assert(__traits(compiles, signRequest(FakeAsymmetricWebhook.init,
+			HTTPClientRequest.init, "msg_1", 1_614_265_330L, `{"event":"ping"}`)));
 }
