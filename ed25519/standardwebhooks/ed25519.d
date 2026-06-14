@@ -299,6 +299,13 @@ private bool verifyDetached(scope const(ubyte)[] pk, scope const(char)[] content
 		scope const(char)[] signature) @trusted
 {
 	ensureSodiumInitialised();
+
+	// The spec mandates canonical standard padded base64 for v1a signatures, as
+	// the symmetric v1 scheme requires. Reject an unpadded length here so the
+	// padding-tolerant core decode cannot silently accept a non-canonical value.
+	if (signature.length % 4 != 0)
+		return false;
+
 	immutable(ubyte)[] decoded;
 	try
 		decoded = decodeStdBase64(signature);
@@ -539,6 +546,25 @@ version (unittest)
 	auto seed = Base64.decode(vecSeedB64);
 	auto wh = AsymmetricWebhook.fromSeed(seed);
 	assert(wh.publicKeyEncoded() == vecPublicKey);
+}
+
+/// An unpadded (non-canonical) signature is rejected: the spec mandates standard
+/// padded base64 for `v1a`, matching `v1`, so a stripped-padding signature must
+/// fail verification rather than be silently re-padded.
+@safe unittest
+{
+	import std.algorithm.searching : endsWith;
+	import std.exception : assertThrown;
+
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	auto unpadded = vecSignature;
+	while (unpadded.endsWith("="))
+		unpadded = unpadded[0 .. $ - 1];
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: unpadded,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A freshly signed payload round-trips through verify after the crypto
