@@ -217,6 +217,11 @@ See [`examples/asymmetric`](examples/asymmetric) for a runnable end-to-end demo.
 - **Verify the raw body.** Always verify the exact bytes you received, before
   parsing. Re-serializing JSON first will change the bytes and break
   verification — that is by design.
+- **Don't treat a signature string as canonical.** Like every reference
+  implementation, an ed25519 (`v1a`) signature is base64 of the raw bytes, and
+  base64 leaves a few trailing bits unconstrained — so several distinct encoded
+  strings decode to the same valid signature. Never use the raw signature string
+  as a deduplication or idempotency key; use the `webhook-id` instead.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 

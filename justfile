@@ -20,6 +20,10 @@ build:
 build-vibe:
     ulimit -n 65536 && dub build :vibe
 
+# Run the vibe.d integration subpackage unit tests.
+test-vibe:
+    ulimit -n 65536 && dub test :vibe
+
 # Build the asymmetric ed25519 subpackage (requires system libsodium).
 build-ed25519:
     ulimit -n 65536 && dub build :ed25519

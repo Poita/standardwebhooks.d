@@ -50,8 +50,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   0.9.x release that overlaps an HTTP request-smuggling advisory
   (GHSA-hm69-r6ch-92wx); HTTP-framing fixes require a manual constraint bump
   because dub `~>` will not cross the minor boundary.
-- The asymmetric subpackage rejects a libsodium too old to provide the detached
-  ed25519 API it calls.
 
 ## [0.1.0] - 2026-06-14
 
