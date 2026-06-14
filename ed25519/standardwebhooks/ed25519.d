@@ -110,6 +110,11 @@ struct AsymmetricWebhook
 	 * Derives a sign-and-verify `AsymmetricWebhook` from a 32-byte ed25519 seed.
 	 * The seed should come from a cryptographically secure source.
 	 *
+	 * This is the asymmetric scheme's key-generation entry point; the symmetric
+	 * $(REF Webhook, standardwebhooks,webhook) has no equivalent and is instead
+	 * constructed directly from an existing secret string or raw key bytes via
+	 * its `fromRaw`.
+	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   with `invalidSecret` if `seed` is not exactly 32 bytes.
 	 */
@@ -165,7 +170,8 @@ struct AsymmetricWebhook
 	 * `webhook-signature` header.
 	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
-	 *   with `signingKeyRequired` if this is a verify-only instance.
+	 *   with `signingKeyRequired` if this is a verify-only instance, or with
+	 *   `invalidSecret` if libsodium fails to initialise.
 	 */
 	string sign(string msgId, long timestamp, scope const(char)[] payload) const
 	{
@@ -204,7 +210,7 @@ struct AsymmetricWebhook
 	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   if a required header is missing, the timestamp is unparseable or outside
-	 *   tolerance, or no signature matches.
+	 *   tolerance, no signature matches, or libsodium fails to initialise.
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
 	{
@@ -214,6 +220,10 @@ struct AsymmetricWebhook
 	/**
 	 * Like $(LREF verify) but skips the timestamp tolerance check entirely. Use
 	 * only when replay protection is handled elsewhere.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   if a required header is missing, no signature matches, or libsodium fails
+	 *   to initialise.
 	 */
 	const(char)[] verifyIgnoringTimestamp(scope return const(char)[] payload,
 			in string[string] headers) const
