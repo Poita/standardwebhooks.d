@@ -65,8 +65,13 @@ struct Webhook
 {
 	private immutable(ubyte)[] key;
 
-	/// The timestamp tolerance window in seconds. Public so callers may widen or
-	/// narrow it; defaults to $(LREF defaultToleranceSeconds) (five minutes).
+	/// The timestamp tolerance window in unix seconds. Public so callers may
+	/// widen or narrow it; defaults to $(LREF defaultToleranceSeconds) (five
+	/// minutes). The window is symmetric: a message verifies when its timestamp
+	/// lies within `±toleranceSeconds` of the current time, guarding against
+	/// both stale (replayed) and future-dated payloads. A value `<= 0` rejects
+	/// nearly every message, while a very large value effectively disables
+	/// replay protection by accepting arbitrarily old timestamps.
 	long toleranceSeconds = defaultToleranceSeconds;
 
 	/**
@@ -166,7 +171,7 @@ struct Webhook
 	/// Verifies against an explicit `now` (unix seconds). Exposed for
 	/// deterministic testing of the tolerance window.
 	package const(char)[] verifyAt(scope return const(char)[] payload,
-			in string[string] headers, long now, bool checkTimestamp) const
+			in string[string] headers, long now, bool checkTimestamp) const scope
 	{
 		const msgId = lookupHeader(headers, headerId, "svix-id");
 		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
@@ -193,7 +198,7 @@ struct Webhook
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
-	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const
+	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const scope
 	{
 		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
@@ -407,6 +412,19 @@ version (unittest)
 	auto wh = Webhook(vecSecret);
 	string[string] headers = [
 		headerId: vecId, headerTimestamp: "not-a-number",
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyError(wh, headers, true);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
+/// A timestamp containing invalid UTF-8 bytes is rejected as invalid headers.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	immutable ubyte[2] bad = [0xff, 0xfe];
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: cast(string) bad.idup,
 		headerSignature: vecSignature,
 	];
 	auto ex = collectVerifyError(wh, headers, true);
