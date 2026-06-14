@@ -241,9 +241,9 @@ struct AsymmetricWebhook
 	package const(char)[] verifyAt(scope return const(char)[] payload,
 			in string[string] headers, long now, bool checkTimestamp) const
 	{
-		const msgId = lookupHeader(headers, headerId, "svix-id");
-		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
-		const sigHeader = lookupHeader(headers, headerSignature, "svix-signature");
+		const msgId = lookupHeader(headers, headerId, svixHeaderId);
+		const tsHeader = lookupHeader(headers, headerTimestamp, svixHeaderTimestamp);
+		const sigHeader = lookupHeader(headers, headerSignature, svixHeaderSignature);
 
 		if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
 			throw new WebhookVerificationException("Missing required headers",
