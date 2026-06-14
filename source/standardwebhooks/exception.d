@@ -22,6 +22,9 @@ enum WebhookError
 	timestampTooOld,
 	/// `timestamp - now` exceeded the tolerance window.
 	timestampTooNew,
+	/// The configured tolerance window was not positive, so no timestamp could
+	/// ever fall within it.
+	invalidTolerance,
 	/// No `v1` signature in the header matched the expected signature.
 	noMatch,
 	/// The secret was not valid base64.
