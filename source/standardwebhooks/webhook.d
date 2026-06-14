@@ -413,6 +413,18 @@ version (unittest)
 	assert(ex.error == WebhookError.timestampTooNew);
 }
 
+/// A `long.min` timestamp is rejected as too old rather than overflowing.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: long.min.to!string,
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyErrorAt(wh, headers, vecTimestamp);
+	assert(ex.error == WebhookError.timestampTooOld);
+}
+
 /// Exactly 300s of skew (either direction) is accepted.
 @safe unittest
 {

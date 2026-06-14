@@ -66,6 +66,14 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 		throw new WebhookVerificationException("Invalid Signature Headers",
 				WebhookError.invalidHeaders);
 
+	// Unix seconds are never negative for any real sender; rejecting them up
+	// front keeps the `now - ts` / `ts - now` differences below from wrapping
+	// for a pathological near-`long.min` value, which would silently bypass the
+	// window. A negative timestamp is necessarily far before any plausible now.
+	if (ts < 0)
+		throw new WebhookVerificationException("Message timestamp too old",
+				WebhookError.timestampTooOld);
+
 	if (now - ts > toleranceSeconds)
 		throw new WebhookVerificationException("Message timestamp too old",
 				WebhookError.timestampTooOld);
