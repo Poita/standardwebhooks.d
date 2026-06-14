@@ -97,15 +97,37 @@ void signRequest(Wh)(in Wh wh, scope HTTPClientRequest req, string msgId,
 	req.headers[headerSignature] = wh.sign(msgId, timestamp, payload);
 }
 
-/// Copies a vibe `InetHeaderMap` (case-insensitive) into a plain associative
-/// array for the core verifier, whose own lookup is also case-insensitive.
-/// On duplicate keys the last field in insertion order wins, so the result is
-/// deterministic.
+/// Copies a vibe `InetHeaderMap` (a multimap preserving duplicate fields) into a
+/// plain associative array for the core verifier, whose own lookup is
+/// case-insensitive. A vibe map can carry the same field twice; collapsing it to
+/// an AA would otherwise resolve last-wins, while vibe's accessors and the core
+/// are first-wins, so a duplicated signature header could verify against a value
+/// other than the one the app reads. A duplicate occurrence of any Standard
+/// Webhooks signature header (the canonical `webhook-*` names or their `svix-*`
+/// aliases, matched case-insensitively) is therefore rejected. Duplicates of
+/// arbitrary non-webhook headers (e.g. `Set-Cookie`) are legitimate and kept.
+///
+/// Throws: $(REF WebhookException, standardwebhooks,exception) with
+///   `invalidHeaders` if a signature header appears more than once.
 package string[string] toAA(in InetHeaderMap headers) @safe
 {
+	import standardwebhooks.internal : asciiEqualCI, lookupHeader, wireHeaderId,
+		wireHeaderTimestamp,
+		wireHeaderSignature, svixHeaderId, svixHeaderTimestamp, svixHeaderSignature;
+
+	static immutable string[6] signatureHeaders = [
+		wireHeaderId, wireHeaderTimestamp, wireHeaderSignature, svixHeaderId,
+		svixHeaderTimestamp, svixHeaderSignature
+	];
+
 	string[string] result;
 	foreach (key, value; headers.byKeyValue)
+	{
+		foreach (name; signatureHeaders[])
+			if (asciiEqualCI(key, name) && lookupHeader(result, name) !is null)
+				throw new WebhookException("Invalid Signature Headers", WebhookError.invalidHeaders);
 		result[key] = value;
+	}
 	return result;
 }
 
@@ -135,15 +157,61 @@ package string[string] toAA(in InetHeaderMap headers) @safe
 	assert(aa["Webhook-Id"] == "msg_abc");
 }
 
-/// On a duplicate key the last field in insertion order wins deterministically.
+/// A duplicate Standard Webhooks signature header is rejected rather than
+/// silently resolved last-wins, so the value verified matches what the app sees.
 @safe unittest
 {
+	import std.exception : collectException;
+
 	InetHeaderMap headers;
 	headers.addField(headerId, "first");
 	headers.addField(headerId, "second");
 
+	auto ex = collectException!WebhookException(toAA(headers));
+	assert(ex !is null);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
+/// A duplicate Svix-branded alias of a signature header is likewise rejected.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	InetHeaderMap headers;
+	headers.addField("svix-id", "first");
+	headers.addField("svix-id", "second");
+
+	auto ex = collectException!WebhookException(toAA(headers));
+	assert(ex !is null);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
+/// A duplicate signature header is detected case-insensitively across differing
+/// casings of the same field name.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	InetHeaderMap headers;
+	headers.addField("Webhook-Signature", "v1,AAAA");
+	headers.addField("webhook-signature", "v1,BBBB");
+
+	auto ex = collectException!WebhookException(toAA(headers));
+	assert(ex !is null);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
+/// Duplicates of arbitrary non-webhook headers are legitimate (e.g. Set-Cookie)
+/// and must not be rejected.
+@safe unittest
+{
+	InetHeaderMap headers;
+	headers.addField(headerId, "msg_1");
+	headers.addField("Set-Cookie", "a=1");
+	headers.addField("Set-Cookie", "b=2");
+
 	auto aa = toAA(headers);
-	assert(aa[headerId] == "second");
+	assert(aa[headerId] == "msg_1");
 }
 
 /// A signature produced by the core signer verifies against the AA that toAA
