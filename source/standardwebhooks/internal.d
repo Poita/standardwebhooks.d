@@ -14,7 +14,7 @@ import std.base64 : Base64;
 import std.conv : to;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
-import std.string : indexOf;
+import std.string : indexOf, stripRight;
 
 import standardwebhooks.exception;
 
@@ -302,8 +302,8 @@ bool isWellFormedStdBase64(scope const(char)[] s) @safe @nogc nothrow pure
 /// raw key bytes.
 ///
 /// Throws: $(REF WebhookException, standardwebhooks,exception) with
-///   `emptySecret` for an empty `value`, or `invalidSecret` if the remainder is
-///   not valid base64.
+///   `emptySecret` for an empty `value` or one that decodes to zero bytes, or
+///   `invalidSecret` if the remainder is not valid base64.
 immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 {
 	if (value.length == 0)
@@ -312,6 +312,12 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 	auto b64 = value;
 	if (b64.length >= prefix.length && b64[0 .. prefix.length] == prefix)
 		b64 = b64[prefix.length .. $];
+
+	// A bare prefix, or one followed only by base64 padding, carries no key
+	// bytes; reject it here so construction fails fast, consistent with fromRaw,
+	// rather than deferring an emptySecret error to the first sign/verify.
+	if (stripRight(b64, "=").length == 0)
+		throw new WebhookException("Secret can't be empty.", WebhookError.emptySecret);
 
 	try
 		return decodeStdBase64(b64);

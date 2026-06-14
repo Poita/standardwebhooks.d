@@ -339,6 +339,26 @@ version (unittest)
 			vecTimestamp, vecPayload));
 }
 
+/// A bare prefix base64-decodes to a zero-length key, so construction fails
+/// fast rather than deferring the error to the first sign/verify.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto ex = collectException!WebhookException(Webhook("whsec_"));
+	assert(ex !is null && ex.error == WebhookError.emptySecret);
+}
+
+/// A prefix followed only by padding also decodes to a zero-length key and is
+/// rejected at construction.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto ex = collectException!WebhookException(Webhook("whsec_===="));
+	assert(ex !is null && ex.error == WebhookError.emptySecret);
+}
+
 /// An unpadded base64 secret still verifies (Python
 /// `test_signature_verification_with_unpadded_secret`).
 @safe unittest
