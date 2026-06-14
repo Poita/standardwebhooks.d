@@ -117,6 +117,20 @@ struct Webhook
 	}
 
 	/**
+	 * Returns a copy of this `Webhook` with its timestamp tolerance set to
+	 * `seconds`, sharing the same key. Tolerance is key-independent, so the copy
+	 * preserves every invariant; this enables fluent construction such as
+	 * `Webhook(secret).withTolerance(600).verify(...)`.
+	 */
+	Webhook withTolerance(long seconds) const
+	{
+		Webhook wh;
+		wh.key = this.key;
+		wh.toleranceSeconds = seconds;
+		return wh;
+	}
+
+	/**
 	 * Signs `payload` and returns a single versioned signature of the form
 	 * `v1,<base64>` — the value to place in (or append to) the
 	 * `webhook-signature` header.
@@ -705,4 +719,42 @@ version (unittest)
 	enum attrs = functionAttributes!hmacBase64;
 	static assert(attrs & FunctionAttribute.safe);
 	static assert(!(attrs & FunctionAttribute.trusted));
+}
+
+/// withTolerance returns a copy whose toleranceSeconds is the supplied value.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret).withTolerance(600);
+	assert(wh.toleranceSeconds == 600);
+}
+
+/// withTolerance leaves the source instance's tolerance untouched.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	const widened = wh.withTolerance(600);
+	assert(wh.toleranceSeconds == defaultToleranceSeconds);
+	assert(widened.toleranceSeconds == 600);
+}
+
+/// The copy shares the key, so a fluently-widened Webhook still verifies a
+/// signature produced by the original.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret).withTolerance(600);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// A widened tolerance lets an otherwise-stale timestamp verify, proving the
+/// copied toleranceSeconds is the value verification consults.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
+	auto wh = Webhook(vecSecret).withTolerance(2000);
+	auto headers = wh.signHeaders(vecId, old, vecPayload);
+	assert(wh.verify(vecPayload, headers) == vecPayload);
 }
