@@ -164,6 +164,12 @@ the ed25519 primitives (so it is kept out of the dependency-free core).
 dub add standardwebhooks:ed25519
 ```
 
+On macOS the subpackage searches the Homebrew (`/opt/homebrew/lib`,
+`/usr/local/lib`) and MacPorts (`/opt/local/lib`) prefixes. If libsodium lives
+elsewhere — Nix, a custom prefix, or another package manager — supply your own
+`-L<dir>` linker flag (e.g. via dub's `lflags` or `LDFLAGS`) so the linker can
+find it.
+
 ```d
 import standardwebhooks;
 import standardwebhooks.ed25519;

@@ -337,6 +337,24 @@ version (unittest)
 	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
+/// A genuine signature buried past the entry cap is never reached, bounding the
+/// verification work an attacker can force.
+@safe unittest
+{
+	import std.array : join;
+	import std.exception : assertThrown;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(200).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
 /// Malformed entries (no comma, empty signature) are skipped without crashing.
 @safe unittest
 {
@@ -413,6 +431,18 @@ version (unittest)
 	assert(ex.error == WebhookError.timestampTooNew);
 }
 
+/// A `long.min` timestamp is rejected as too old rather than overflowing.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: long.min.to!string,
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyErrorAt(wh, headers, vecTimestamp);
+	assert(ex.error == WebhookError.timestampTooOld);
+}
+
 /// Exactly 300s of skew (either direction) is accepted.
 @safe unittest
 {
@@ -440,6 +470,19 @@ version (unittest)
 	string[string] headers = [
 		"svix-id": vecId, "svix-timestamp": vecTimestamp.to!string,
 		"svix-signature": vecSignature,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// When both canonical and svix-* headers are present, the canonical values
+/// win regardless of map iteration order.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	string[string] headers = [
+		"webhook-id": vecId, "svix-id": "wrong",
+		"webhook-timestamp": vecTimestamp.to!string, "svix-timestamp": "0",
+		"webhook-signature": vecSignature, "svix-signature": "v1,deadbeef",
 	];
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }

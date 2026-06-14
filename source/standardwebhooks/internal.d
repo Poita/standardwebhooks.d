@@ -36,19 +36,17 @@ long currentUnixSeconds()
 	return Clock.currTime(UTC()).toUnixTime();
 }
 
-/// Case-insensitive lookup returning the first header whose key matches any of
-/// `names` (which must be lowercase), or `null` if none is present. In addition
-/// to the canonical `webhook-*` names, callers pass the Svix-branded `svix-*`
-/// aliases as a fallback.
+/// Case-insensitive lookup returning the value for the first of `names` (which
+/// must be lowercase) that is present, or `null` if none is. `names` is scanned
+/// in priority order, so callers pass the canonical `webhook-*` name ahead of
+/// its Svix-branded `svix-*` alias and the canonical value wins whenever both
+/// headers are present.
 string lookupHeader(in string[string] headers, scope const(string)[] names...)
 {
-	foreach (key, value; headers)
-	{
-		const lowered = key.toLower;
-		foreach (name; names)
-			if (lowered == name)
+	foreach (name; names)
+		foreach (key, value; headers)
+			if (key.toLower == name)
 				return value;
-	}
 	return null;
 }
 
@@ -66,6 +64,14 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 		throw new WebhookVerificationException("Invalid Signature Headers",
 				WebhookError.invalidHeaders);
 
+	// Unix seconds are never negative for any real sender; rejecting them up
+	// front keeps the `now - ts` / `ts - now` differences below from wrapping
+	// for a pathological near-`long.min` value, which would silently bypass the
+	// window. A negative timestamp is necessarily far before any plausible now.
+	if (ts < 0)
+		throw new WebhookVerificationException("Message timestamp too old",
+				WebhookError.timestampTooOld);
+
 	if (now - ts > toleranceSeconds)
 		throw new WebhookVerificationException("Message timestamp too old",
 				WebhookError.timestampTooOld);
@@ -74,18 +80,30 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 				WebhookError.timestampTooNew);
 }
 
+/// Upper bound on the number of space-delimited entries `anySignature` examines.
+/// Each examined entry can trigger a full HMAC/ed25519 verify, so capping the
+/// count bounds the work an attacker can force with a long header and keeps the
+/// limit comfortably above any realistic key-rotation overlap.
+enum size_t maxSignatureEntries = 64;
+
 /// Walks the space-delimited `webhook-signature` header, splitting each entry on
 /// its first comma into a `(version, signature)` pair, and returns true as soon
 /// as `pred` accepts one. Entries without a comma are skipped (not errored),
-/// matching every reference library.
+/// matching every reference library. Scanning stops once `maxSignatureEntries`
+/// entries have been examined, after which the remainder is treated as no-match.
 bool anySignature(scope const(char)[] sigHeader,
 		scope bool delegate(scope const(char)[] version_, scope const(char)[] signature) @safe pred)
 {
 	size_t start = 0;
+	size_t examined = 0;
 	while (start <= sigHeader.length)
 	{
+		if (examined >= maxSignatureEntries)
+			break;
+
 		const end = sigHeader.indexOf(' ', start);
 		const part = end < 0 ? sigHeader[start .. $] : sigHeader[start .. end];
+		++examined;
 
 		const comma = part.indexOf(',');
 		if (comma >= 0 && pred(part[0 .. comma], part[comma + 1 .. $]))

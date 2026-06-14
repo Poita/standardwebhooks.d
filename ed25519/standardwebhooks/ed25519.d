@@ -121,10 +121,12 @@ struct AsymmetricWebhook
 
 		ubyte[publicKeyBytes] pk;
 		ubyte[secretKeyBytes] sk;
-		() @trusted {
-			ensureSodiumInitialised();
-			crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
-		}();
+		if (()@trusted {
+				ensureSodiumInitialised();
+				return crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
+			}() != 0)
+			throw new WebhookVerificationException("ed25519 key derivation failed",
+					WebhookError.invalidSecret);
 
 		AsymmetricWebhook wh;
 		wh.publicKey = pk.idup;
@@ -495,4 +497,12 @@ version (unittest)
 	auto wh = AsymmetricWebhook(vecSigningKey);
 	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// fromSeed() derives the golden public key from its 32-byte seed.
+@safe unittest
+{
+	auto seed = Base64.decode(vecSeedB64);
+	auto wh = AsymmetricWebhook.fromSeed(seed);
+	assert(wh.publicKeyEncoded() == vecPublicKey);
 }
