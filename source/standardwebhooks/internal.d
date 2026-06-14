@@ -11,7 +11,7 @@
 module standardwebhooks.internal;
 
 import std.base64 : Base64;
-import std.conv : to, ConvException;
+import std.conv : to;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
 import std.string : indexOf, toLower;
@@ -58,9 +58,12 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSeconds)
 {
 	long ts;
+	// A non-numeric value raises ConvException and invalid UTF-8 bytes raise
+	// UTFException; both mean the header is unparseable, so map any parse failure
+	// to invalidHeaders.
 	try
 		ts = tsHeader.to!long;
-	catch (ConvException)
+	catch (Exception)
 		throw new WebhookVerificationException("Invalid Signature Headers",
 				WebhookError.invalidHeaders);
 
