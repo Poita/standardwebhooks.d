@@ -144,6 +144,21 @@ struct AsymmetricWebhook
 		return wh;
 	}
 
+	/**
+	 * Returns a copy of this `AsymmetricWebhook` with its timestamp tolerance set
+	 * to `seconds`, sharing the same key bytes. Tolerance is key-independent, so
+	 * the copy preserves every invariant; this enables fluent construction such
+	 * as `AsymmetricWebhook(key).withTolerance(600).verify(...)`.
+	 */
+	AsymmetricWebhook withTolerance(long seconds) const
+	{
+		AsymmetricWebhook wh;
+		wh.publicKey = this.publicKey;
+		wh.secretKey = this.secretKey;
+		wh.toleranceSeconds = seconds;
+		return wh;
+	}
+
 	/// Whether this instance holds a signing key and so can $(LREF sign).
 	bool canSign() const
 	{
@@ -637,4 +652,49 @@ version (unittest)
 		headerSignature: sig,
 	];
 	assert(verifier.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// withTolerance returns a copy whose toleranceSeconds is the supplied value.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecSigningKey).withTolerance(600);
+	assert(wh.toleranceSeconds == 600);
+}
+
+/// withTolerance leaves the source instance's tolerance untouched.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecSigningKey);
+	const widened = wh.withTolerance(600);
+	assert(wh.toleranceSeconds == defaultToleranceSeconds);
+	assert(widened.toleranceSeconds == 600);
+}
+
+/// The copy shares the key bytes, so a fluently-widened instance still signs and
+/// verifies end to end.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecSigningKey).withTolerance(600);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// A widened tolerance lets an otherwise-stale timestamp verify, proving the
+/// copied toleranceSeconds is the value verification consults.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
+	auto wh = AsymmetricWebhook(vecSigningKey).withTolerance(2000);
+	auto headers = wh.signHeaders(vecId, old, vecPayload);
+	assert(wh.verify(vecPayload, headers) == vecPayload);
+}
+
+/// withTolerance preserves verify-only status: a `whpk_` copy cannot sign.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecPublicKey).withTolerance(600);
+	assert(!wh.canSign());
 }
