@@ -404,8 +404,14 @@ package const(char)[] verifyAnyAt(in Webhook symmetric, in AsymmetricWebhook asy
 {
 	try
 		return symmetric.verifyAt(payload, headers, now, checkTimestamp);
-	catch (WebhookException)
+	catch (WebhookException e)
 	{
+		// A symmetric operator/config fault (an empty secret, or a tolerance
+		// window that admits nothing) is the receiver's own misconfiguration,
+		// not a rejected payload. Surface it instead of silently degrading to
+		// asymmetric-only verification.
+		if (e.error == WebhookError.emptySecret || e.error == WebhookError.invalidTolerance)
+			throw e;
 		// The symmetric scheme rejected the payload; fall through to the
 		// asymmetric scheme, whose exception is surfaced if it too rejects.
 		return asymmetric.verifyAt(payload, headers, now, checkTimestamp);
@@ -1044,4 +1050,21 @@ version (unittest)
 		headerSignature: vecSignature,
 	];
 	assert(verifyAnyIgnoringTimestamp(symmetric, asymmetric, vecPayload, headers) == vecPayload);
+}
+
+/// verifyAny surfaces a symmetric invalidTolerance config fault rather than
+/// masking it behind the asymmetric verifier's noMatch.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto symmetric = Webhook(vecSecret).withTolerance(0);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,AAAA",
+	];
+	auto ex = collectException!WebhookException(verifyAnyAt(symmetric,
+			asymmetric, vecPayload, headers, vecTimestamp, true));
+	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
 }
