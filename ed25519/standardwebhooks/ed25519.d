@@ -490,6 +490,25 @@ version (unittest)
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
 
+/// A signature carrying base64URL alphabet characters (`-`/`_`) is rejected
+/// rather than mis-decoded: verifyDetached fails the standard-base64 decode and
+/// returns false, so verification throws.
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	// The genuine signature with two standard-base64 chars swapped for their
+	// base64URL equivalents, so a strict decoder must reject it.
+	auto urlEncoded = asymmetricVersion ~ ",hnO3f9T8Ytu9HwrXslvumlUpqtNVqkhqw_enGzPCXe5Bdqz"
+		~ "CInXqYXFymVJaA7AZdpXwVLPo3mNl8EM-m7TBAg==";
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: urlEncoded,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
 /// Signing and verification work without an eager module ctor: libsodium is
 /// initialised lazily on the first crypto call.
 @safe unittest
