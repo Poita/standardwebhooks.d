@@ -337,6 +337,24 @@ version (unittest)
 	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
+/// A genuine signature buried past the entry cap is never reached, bounding the
+/// verification work an attacker can force.
+@safe unittest
+{
+	import std.array : join;
+	import std.exception : assertThrown;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(200).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
 /// Malformed entries (no comma, empty signature) are skipped without crashing.
 @safe unittest
 {

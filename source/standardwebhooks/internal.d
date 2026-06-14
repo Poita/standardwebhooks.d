@@ -74,18 +74,30 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 				WebhookError.timestampTooNew);
 }
 
+/// Upper bound on the number of space-delimited entries `anySignature` examines.
+/// Each examined entry can trigger a full HMAC/ed25519 verify, so capping the
+/// count bounds the work an attacker can force with a long header and keeps the
+/// limit comfortably above any realistic key-rotation overlap.
+enum size_t maxSignatureEntries = 64;
+
 /// Walks the space-delimited `webhook-signature` header, splitting each entry on
 /// its first comma into a `(version, signature)` pair, and returns true as soon
 /// as `pred` accepts one. Entries without a comma are skipped (not errored),
-/// matching every reference library.
+/// matching every reference library. Scanning stops once `maxSignatureEntries`
+/// entries have been examined, after which the remainder is treated as no-match.
 bool anySignature(scope const(char)[] sigHeader,
 		scope bool delegate(scope const(char)[] version_, scope const(char)[] signature) @safe pred)
 {
 	size_t start = 0;
+	size_t examined = 0;
 	while (start <= sigHeader.length)
 	{
+		if (examined >= maxSignatureEntries)
+			break;
+
 		const end = sigHeader.indexOf(' ', start);
 		const part = end < 0 ? sigHeader[start .. $] : sigHeader[start .. end];
+		++examined;
 
 		const comma = part.indexOf(',');
 		if (comma >= 0 && pred(part[0 .. comma], part[comma + 1 .. $]))
