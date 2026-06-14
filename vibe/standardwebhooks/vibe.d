@@ -38,7 +38,7 @@ module standardwebhooks.vibe;
 import vibe.http.client : HTTPClientRequest;
 import vibe.http.server : HTTPServerRequest;
 import vibe.inet.message : InetHeaderMap;
-import vibe.stream.operations : readAllUTF8;
+import vibe.stream.operations : readAll;
 
 import standardwebhooks;
 
@@ -53,7 +53,9 @@ import standardwebhooks;
  */
 const(char)[] verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe
 {
-	const payload = () @trusted { return req.bodyReader.readAllUTF8(); }();
+	// Read the raw body bytes: signature verification must run over the exact
+	// bytes received. UTF-8 validation or BOM stripping would alter them.
+	const payload = () @trusted { return cast(string) req.bodyReader.readAll(); }();
 	return wh.verify(payload, toAA(req.headers));
 }
 
