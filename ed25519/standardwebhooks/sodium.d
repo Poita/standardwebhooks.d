@@ -10,9 +10,13 @@
  * key — so the decoded bytes are passed straight through with no reshaping.
  *
  * The system libsodium shared library is linked via the subpackage `dub.json`
- * (`libs`/`lflags`). $(LREF sodiumInit) is invoked once at module load.
+ * (`libs`/`lflags`). $(LREF ensureSodiumInitialised) performs the one-time
+ * `sodium_init()` on first use rather than at module load, so merely linking the
+ * subpackage cannot abort the process.
  */
 module standardwebhooks.sodium;
+
+import standardwebhooks.exception;
 
 /// Length in bytes of a detached ed25519 signature (`crypto_sign_BYTES`).
 enum size_t signatureBytes = 64;
@@ -48,10 +52,30 @@ extern (C) @system @nogc nothrow
 	int crypto_sign_seed_keypair(scope ubyte* pk, scope ubyte* sk, scope const(ubyte)* seed);
 }
 
-/// Initialise libsodium once when the binding is loaded. A negative return value
-/// means the library could not initialise and no signing is safe, so it is fatal.
-shared static this() @trusted
+/// Whether `sodium_init()` has already completed successfully. Guarded by
+/// `synchronized` on its first transition so concurrent first callers race
+/// safely; once set, the hot path reads it without locking.
+private shared bool sodiumInitialised;
+
+/// Performs libsodium's one-time `sodium_init()` before the first crypto call.
+/// `sodium_init()` is itself idempotent, but gating on a flag keeps the common
+/// case lock-free. A negative return value means the library could not
+/// initialise and no signing is safe.
+///
+/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+///   `invalidSecret` if `sodium_init()` fails.
+void ensureSodiumInitialised() @trusted
 {
-	if (sodium_init() < 0)
-		throw new Error("libsodium initialisation failed");
+	if (sodiumInitialised)
+		return;
+
+	synchronized
+	{
+		if (sodiumInitialised)
+			return;
+		if (sodium_init() < 0)
+			throw new WebhookVerificationException("libsodium initialisation failed",
+					WebhookError.invalidSecret);
+		sodiumInitialised = true;
+	}
 }
