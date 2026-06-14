@@ -95,9 +95,15 @@ struct Webhook
 	 * Builds a `Webhook` directly from raw HMAC key bytes, bypassing the
 	 * `whsec_`/base64 convention. Use this when the key is already binary (for
 	 * example, freshly generated random bytes).
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   with `WebhookError.emptySecret` for a zero-length key, which would
+	 *   otherwise sign and verify a worthless signature with no diagnostic.
 	 */
 	static Webhook fromRaw(scope const(ubyte)[] key)
 	{
+		if (key.length == 0)
+			throw new WebhookVerificationException("Empty signing key", WebhookError.emptySecret);
 		Webhook wh;
 		wh.key = key.idup;
 		return wh;
@@ -210,8 +216,12 @@ struct Webhook
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
+	/// Rejects an empty key, which catches `Webhook.init` whose key was never
+	/// set; signing or verifying with it would yield a worthless signature.
 	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const scope
 	{
+		if (key.length == 0)
+			throw new WebhookVerificationException("Empty signing key", WebhookError.emptySecret);
 		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
 }
@@ -335,6 +345,42 @@ version (unittest)
 	immutable(ubyte)[] raw = [1, 2, 3, 4, 5, 6, 7, 8];
 	auto wh = Webhook.fromRaw(raw);
 	assert(wh.secretEncoded() == "whsec_" ~ Base64.encode(raw).idup);
+}
+
+/// fromRaw() rejects a zero-length key rather than yielding a worthless signer.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto ex = collectException!WebhookVerificationException(Webhook.fromRaw([]));
+	assert(ex !is null && ex.error == WebhookError.emptySecret);
+}
+
+/// A default-initialised Webhook (`Webhook.init`) has no key, so signing throws
+/// rather than producing a real-looking but worthless signature.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	Webhook wh;
+	auto ex = collectException!WebhookVerificationException(wh.sign(vecId,
+			vecTimestamp, vecPayload));
+	assert(ex !is null && ex.error == WebhookError.emptySecret);
+}
+
+/// A default-initialised Webhook rejects verification too.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	Webhook wh;
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+			headers, vecTimestamp, false));
+	assert(ex !is null && ex.error == WebhookError.emptySecret);
 }
 
 /// A tampered signature does not verify (the reference negative vector flips the
