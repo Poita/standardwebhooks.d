@@ -426,7 +426,9 @@ private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content
 	if (crypto_sign_detached(sig.ptr, &siglen,
 			cast(const(ubyte)*) content.ptr, content.length, sk.ptr) != 0)
 		throw new WebhookException("ed25519 signing failed", WebhookError.cryptoFailure);
-	assert(siglen == signatureBytes);
+	if (siglen != signatureBytes)
+		throw new WebhookException("ed25519 signing produced unexpected length",
+				WebhookError.cryptoFailure);
 	return Base64.encode(sig[0 .. siglen]).idup;
 }
 
