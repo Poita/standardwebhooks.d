@@ -8,7 +8,7 @@
  * This module lives in the `standardwebhooks:vibe` subpackage so the core
  * library stays dependency-free. Depend on it explicitly:
  * ---
- * "dependencies": { "standardwebhooks:vibe": "~>1.0" }
+ * "dependencies": { "standardwebhooks:vibe": "~>0.1" }
  * ---
  *
  * Example (receiver):
