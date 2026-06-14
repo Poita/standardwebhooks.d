@@ -16,6 +16,8 @@
  */
 module standardwebhooks.sodium;
 
+import core.atomic;
+
 import standardwebhooks.exception;
 
 /// Length in bytes of a detached ed25519 signature (`crypto_sign_BYTES`).
@@ -65,9 +67,10 @@ extern (C) @system @nogc nothrow
 	int crypto_sign_seed_keypair(scope ubyte* pk, scope ubyte* sk, scope const(ubyte)* seed);
 }
 
-/// Whether `sodium_init()` has already completed successfully. Guarded by
-/// `synchronized` on its first transition so concurrent first callers race
-/// safely; once set, the hot path reads it without locking.
+/// Whether `sodium_init()` has already completed successfully. Written under
+/// `synchronized` on its first transition with a release store, and read with an
+/// acquire load on the lock-free hot path, so concurrent first callers race
+/// safely and a thread that observes it set also observes the finished init.
 private shared bool sodiumInitialised;
 
 /// Performs libsodium's one-time `sodium_init()` before the first crypto call.
@@ -76,21 +79,23 @@ private shared bool sodiumInitialised;
 /// initialise and no signing is safe.
 ///
 /// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
-///   `invalidSecret` if `sodium_init()` fails.
+///   `cryptoFailure` if `sodium_init()` fails.
 void ensureSodiumInitialised() @trusted
 {
-	if (sodiumInitialised)
+	// Acquire load pairs with the release store below so a thread that sees the
+	// flag set also sees the completed initialisation.
+	if (atomicLoad!(MemoryOrder.acq)(sodiumInitialised))
 		return;
 
 	synchronized
 	{
-		if (sodiumInitialised)
+		if (atomicLoad!(MemoryOrder.acq)(sodiumInitialised))
 			return;
 		if (sodium_init() < 0)
 			throw new WebhookVerificationException("libsodium initialisation failed",
-					WebhookError.invalidSecret);
+					WebhookError.cryptoFailure);
 		checkSodiumVersion();
-		sodiumInitialised = true;
+		atomicStore!(MemoryOrder.rel)(sodiumInitialised, true);
 	}
 }
 

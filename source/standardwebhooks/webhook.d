@@ -65,8 +65,13 @@ struct Webhook
 {
 	private immutable(ubyte)[] key;
 
-	/// The timestamp tolerance window in seconds. Public so callers may widen or
-	/// narrow it; defaults to $(LREF defaultToleranceSeconds) (five minutes).
+	/// The timestamp tolerance window in unix seconds. Public so callers may
+	/// widen or narrow it; defaults to $(LREF defaultToleranceSeconds) (five
+	/// minutes). The window is symmetric: a message verifies when its timestamp
+	/// lies within `±toleranceSeconds` of the current time, guarding against
+	/// both stale (replayed) and future-dated payloads. A value `<= 0` rejects
+	/// nearly every message, while a very large value effectively disables
+	/// replay protection by accepting arbitrarily old timestamps.
 	long toleranceSeconds = defaultToleranceSeconds;
 
 	/**
@@ -166,7 +171,7 @@ struct Webhook
 	/// Verifies against an explicit `now` (unix seconds). Exposed for
 	/// deterministic testing of the tolerance window.
 	package const(char)[] verifyAt(scope return const(char)[] payload,
-			in string[string] headers, long now, bool checkTimestamp) const
+			in string[string] headers, long now, bool checkTimestamp) const scope
 	{
 		const msgId = lookupHeader(headers, headerId, "svix-id");
 		const tsHeader = lookupHeader(headers, headerTimestamp, "svix-timestamp");
@@ -193,7 +198,7 @@ struct Webhook
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
-	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const
+	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const scope
 	{
 		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
@@ -413,6 +418,19 @@ version (unittest)
 	assert(ex.error == WebhookError.invalidHeaders);
 }
 
+/// A timestamp containing invalid UTF-8 bytes is rejected as invalid headers.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	immutable ubyte[2] bad = [0xff, 0xfe];
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: cast(string) bad.idup,
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyError(wh, headers, true);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
 /// A timestamp 301s in the past is rejected (tolerance is 300s).
 @safe unittest
 {
@@ -558,6 +576,41 @@ version (unittest)
 	string[string] headers = [
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: "v1,a,b " ~ good,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// The entry cap is exactly 64: a genuine signature at the 65th position (after
+/// 64 decoys) is never examined, so verification fails.
+@safe unittest
+{
+	import std.array : join;
+	import std.exception : assertThrown;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(64).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// The entry cap is exactly 64: a genuine signature at the 64th position (after
+/// 63 decoys) is examined, so verification succeeds.
+@safe unittest
+{
+	import std.array : join;
+	import std.range : repeat;
+
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload);
+	const decoys = "v1,AAAA".repeat(63).join(" ");
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: decoys ~ " " ~ good,
 	];
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }

@@ -34,7 +34,7 @@
 				"standardwebhooks": {
 					"path": "."
 				},
-				"vibe-d:http": "~>0.9.8"
+				"vibe-d:http": ">=0.10.2 <0.11.0"
 			}
 		},
 		{
