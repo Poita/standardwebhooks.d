@@ -173,6 +173,12 @@ elsewhere — Nix, a custom prefix, or another package manager — supply your o
 `-L<dir>` linker flag (e.g. via dub's `lflags` or `LDFLAGS`) so the linker can
 find it.
 
+On Windows there is no system libsodium; install it with
+[vcpkg](https://vcpkg.io) (`vcpkg install libsodium:x64-windows`) so the import
+library is on the linker's `LIB` path and the matching DLL is on `PATH` at
+runtime — mirroring what CI does. The subpackage links `libsodium` via dub's
+`libs-windows`.
+
 ```d
 import standardwebhooks;
 import standardwebhooks.ed25519;
