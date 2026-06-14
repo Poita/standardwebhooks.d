@@ -60,7 +60,8 @@
 			],
 			"lflags-osx": [
 				"-L/opt/homebrew/lib",
-				"-L/usr/local/lib"
+				"-L/usr/local/lib",
+				"-L/opt/local/lib"
 			]
 		}
 	]
