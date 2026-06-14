@@ -65,8 +65,13 @@ struct Webhook
 {
 	private immutable(ubyte)[] key;
 
-	/// The timestamp tolerance window in seconds. Public so callers may widen or
-	/// narrow it; defaults to $(LREF defaultToleranceSeconds) (five minutes).
+	/// The timestamp tolerance window in unix seconds. Public so callers may
+	/// widen or narrow it; defaults to $(LREF defaultToleranceSeconds) (five
+	/// minutes). The window is symmetric: a message verifies when its timestamp
+	/// lies within `±toleranceSeconds` of the current time, guarding against
+	/// both stale (replayed) and future-dated payloads. A value `<= 0` rejects
+	/// nearly every message, while a very large value effectively disables
+	/// replay protection by accepting arbitrarily old timestamps.
 	long toleranceSeconds = defaultToleranceSeconds;
 
 	/**
