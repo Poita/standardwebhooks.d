@@ -63,8 +63,13 @@ struct AsymmetricWebhook
 	/// instance was built from a public key alone.
 	private immutable(ubyte)[] secretKey;
 
-	/// The timestamp tolerance window in seconds; defaults to
+	/// The timestamp tolerance window in unix seconds; defaults to
 	/// $(REF defaultToleranceSeconds, standardwebhooks,webhook) (five minutes).
+	/// The window is symmetric: a message verifies when its timestamp lies
+	/// within `±toleranceSeconds` of the current time, guarding against both
+	/// stale (replayed) and future-dated payloads. A value `<= 0` rejects
+	/// nearly every message, while a very large value effectively disables
+	/// replay protection by accepting arbitrarily old timestamps.
 	long toleranceSeconds = defaultToleranceSeconds;
 
 	/**
