@@ -168,8 +168,7 @@ dub add standardwebhooks:ed25519
 ```
 
 **libsodium 1.0.4 or newer** is required (the detached ed25519 API the subpackage
-calls). On first use the linked library's reported version is checked, and a
-`WebhookVerificationException` is thrown if it is too old.
+calls).
 
 On macOS the subpackage searches the Homebrew (`/opt/homebrew/lib`,
 `/usr/local/lib`) and MacPorts (`/opt/local/lib`) prefixes. If libsodium lives
