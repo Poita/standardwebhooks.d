@@ -14,7 +14,7 @@ import std.base64 : Base64;
 import std.conv : to;
 import std.datetime.systime : Clock;
 import std.datetime.timezone : UTC;
-import std.string : indexOf, toLower;
+import std.string : indexOf;
 
 import standardwebhooks.exception;
 
@@ -36,6 +36,28 @@ long currentUnixSeconds()
 	return Clock.currTime(UTC()).toUnixTime();
 }
 
+/// ASCII case-insensitive equality. Header names are guaranteed ASCII, so an
+/// allocation-free byte-wise fold suffices and avoids the throwaway GC string
+/// per key that `std.string.toLower` would produce on every lookup.
+bool asciiEqualCI(scope const(char)[] a, scope const(char)[] b) @nogc nothrow pure
+{
+	if (a.length != b.length)
+		return false;
+	foreach (i; 0 .. a.length)
+	{
+		char ca = a[i];
+		char cb = b[i];
+		// Fold the uppercase range onto lowercase before comparing.
+		if (ca >= 'A' && ca <= 'Z')
+			ca += 'a' - 'A';
+		if (cb >= 'A' && cb <= 'Z')
+			cb += 'a' - 'A';
+		if (ca != cb)
+			return false;
+	}
+	return true;
+}
+
 /// Case-insensitive lookup returning the value for the first of `names` (which
 /// must be lowercase) that is present, or `null` if none is. `names` is scanned
 /// in priority order, so callers pass the canonical `webhook-*` name ahead of
@@ -45,7 +67,7 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 {
 	foreach (name; names)
 		foreach (key, value; headers)
-			if (key.toLower == name)
+			if (asciiEqualCI(key, name))
 				return value;
 	return null;
 }
@@ -192,6 +214,61 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 }
 
 // --- Tests ---
+
+@safe unittest
+{
+	// The ASCII fold compares without allocating, so it is callable in a
+	// `@nogc nothrow` context.
+	static assert(__traits(compiles, () @nogc nothrow{
+			cast(void) asciiEqualCI("a", "A");
+		}));
+}
+
+@safe @nogc nothrow unittest
+{
+	// Differing case on each side still matches.
+	assert(asciiEqualCI("Webhook-Id", "webhook-id"));
+}
+
+@safe @nogc nothrow unittest
+{
+	// Distinct names do not match.
+	assert(!asciiEqualCI("webhook-id", "webhook-timestamp"));
+}
+
+@safe @nogc nothrow unittest
+{
+	// Differing length never matches.
+	assert(!asciiEqualCI("abc", "abcd"));
+}
+
+@safe @nogc nothrow unittest
+{
+	// Bytes outside the ASCII-letter range fold to themselves.
+	assert(asciiEqualCI("x-1_2", "X-1_2"));
+	assert(!asciiEqualCI("[", "{"));
+}
+
+@safe unittest
+{
+	// Lookup matches header keys case-insensitively, in `names` priority order.
+	string[string] headers = ["Webhook-Id": "canonical", "Svix-Id": "alias"];
+	assert(lookupHeader(headers, "webhook-id", "svix-id") == "canonical");
+}
+
+@safe unittest
+{
+	// Falls back to the aliased name when the canonical one is absent.
+	string[string] headers = ["SVIX-ID": "alias"];
+	assert(lookupHeader(headers, "webhook-id", "svix-id") == "alias");
+}
+
+@safe unittest
+{
+	// No matching header yields null.
+	string[string] headers = ["content-type": "application/json"];
+	assert(lookupHeader(headers, "webhook-id", "svix-id") is null);
+}
 
 @safe unittest
 {
