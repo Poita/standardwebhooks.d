@@ -53,10 +53,17 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 /// Parses and tolerance-checks a timestamp header against `now`.
 ///
 /// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
-///   `invalidHeaders` if `tsHeader` is not an integer, `timestampTooOld` if it
-///   precedes the window, or `timestampTooNew` if it follows the window.
+///   `invalidTolerance` if `toleranceSeconds` is not positive, `invalidHeaders`
+///   if `tsHeader` is not an integer, `timestampTooOld` if it precedes the
+///   window, or `timestampTooNew` if it follows the window.
 void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSeconds)
 {
+	// A non-positive tolerance admits no timestamp at all, so every message
+	// would otherwise be rejected as too old; surface the misconfiguration
+	// distinctly instead of masking it as a routine stale-timestamp rejection.
+	if (toleranceSeconds <= 0)
+		throw new WebhookVerificationException("Invalid tolerance", WebhookError.invalidTolerance);
+
 	long ts;
 	// A non-numeric value raises ConvException and invalid UTF-8 bytes raise
 	// UTFException; both mean the header is unparseable, so map any parse failure
@@ -192,6 +199,35 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 }
 
 // --- Tests ---
+
+@safe unittest
+{
+	import std.exception : collectException;
+
+	// A zero tolerance is a configuration error, reported distinctly rather than
+	// as a stale-timestamp rejection of an otherwise-current timestamp.
+	auto ex = collectException!WebhookVerificationException(verifyTimestamp("1000", 1000, 0));
+	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+}
+
+@safe unittest
+{
+	import std.exception : collectException;
+
+	// A negative tolerance is likewise surfaced as invalidTolerance.
+	auto ex = collectException!WebhookVerificationException(verifyTimestamp("1000", 1000, -5));
+	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+}
+
+@safe unittest
+{
+	import std.exception : collectException;
+
+	// The tolerance check precedes header parsing, so a non-positive tolerance is
+	// reported even when the timestamp header is itself unparseable.
+	auto ex = collectException!WebhookVerificationException(verifyTimestamp("oops", 1000, 0));
+	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+}
 
 @safe unittest
 {
