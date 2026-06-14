@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -59,7 +59,7 @@ jobs:
             os: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -82,7 +82,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install D compiler
         uses: dlang-community/setup-dlang@v2
@@ -138,7 +138,7 @@ jobs:
       # On a PRIVATE repo this needs CODECOV_TOKEN in repo secrets AND the repo
       # activated on codecov.io; on a PUBLIC repo it uploads tokenlessly.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ./lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
