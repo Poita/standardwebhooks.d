@@ -103,6 +103,13 @@ struct Webhook
 		return wh;
 	}
 
+	/// The shared secret in `whsec_`-prefixed base64 form — the value to store or
+	/// hand to a counterparty so it can reconstruct an identical `Webhook`.
+	string secretEncoded() const
+	{
+		return secretPrefix ~ Base64.encode(key).idup;
+	}
+
 	/**
 	 * Signs `payload` and returns a single versioned signature of the form
 	 * `v1,<base64>` — the value to place in (or append to) the
@@ -305,6 +312,29 @@ version (unittest)
 	import std.exception : assertThrown;
 
 	assertThrown!WebhookVerificationException(Webhook(""));
+}
+
+/// secretEncoded() round-trips: re-prefixing and re-decoding yields the same key.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	auto roundTrip = Webhook(wh.secretEncoded());
+	assert(roundTrip.sign(vecId, vecTimestamp, vecPayload) == vecSignature);
+}
+
+/// secretEncoded() carries the `whsec_` prefix and re-encodes a bare secret with it.
+@safe unittest
+{
+	auto bare = Webhook("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+	assert(bare.secretEncoded() == vecSecret);
+}
+
+/// secretEncoded() of a fromRaw() instance base64-encodes the raw key bytes.
+@safe unittest
+{
+	immutable(ubyte)[] raw = [1, 2, 3, 4, 5, 6, 7, 8];
+	auto wh = Webhook.fromRaw(raw);
+	assert(wh.secretEncoded() == "whsec_" ~ Base64.encode(raw).idup);
 }
 
 /// A tampered signature does not verify (the reference negative vector flips the
