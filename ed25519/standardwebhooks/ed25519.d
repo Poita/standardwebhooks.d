@@ -122,6 +122,7 @@ struct AsymmetricWebhook
 		ubyte[publicKeyBytes] pk;
 		ubyte[secretKeyBytes] sk;
 		if (()@trusted {
+				ensureSodiumInitialised();
 				return crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
 			}() != 0)
 			throw new WebhookVerificationException("ed25519 key derivation failed",
@@ -267,6 +268,7 @@ private bool hasPrefix(scope const(char)[] s, string prefix) @safe
 /// `content` under the 64-byte secret key `sk`.
 private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content) @trusted
 {
+	ensureSodiumInitialised();
 	ubyte[signatureBytes] sig;
 	ulong siglen;
 	if (crypto_sign_detached(sig.ptr, &siglen,
@@ -281,6 +283,7 @@ private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content
 private bool verifyDetached(scope const(ubyte)[] pk, scope const(char)[] content,
 		scope const(char)[] signature) @trusted
 {
+	ensureSodiumInitialised();
 	immutable(ubyte)[] decoded;
 	try
 		decoded = decodeStdBase64(signature);
@@ -484,6 +487,15 @@ version (unittest)
 		"svix-id": vecId, "svix-timestamp": vecTimestamp.to!string,
 		"svix-signature": vecSignature,
 	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// Signing and verification work without an eager module ctor: libsodium is
+/// initialised lazily on the first crypto call.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecSigningKey);
+	auto headers = wh.signHeaders(vecId, vecTimestamp, vecPayload);
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
 
