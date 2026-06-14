@@ -413,6 +413,19 @@ version (unittest)
 	assert(ex.error == WebhookError.invalidHeaders);
 }
 
+/// A timestamp containing invalid UTF-8 bytes is rejected as invalid headers.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	immutable ubyte[2] bad = [0xff, 0xfe];
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: cast(string) bad.idup,
+		headerSignature: vecSignature,
+	];
+	auto ex = collectVerifyError(wh, headers, true);
+	assert(ex.error == WebhookError.invalidHeaders);
+}
+
 /// A timestamp 301s in the past is rejected (tolerance is 300s).
 @safe unittest
 {
