@@ -144,6 +144,45 @@ struct AsymmetricWebhook
 		return wh;
 	}
 
+	/**
+	 * Builds a verify-only `AsymmetricWebhook` from a raw 32-byte ed25519 public
+	 * key, sparing the caller the base64-encode-then-decode round trip of the
+	 * `whpk_` string constructor.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   with `invalidSecret` if `pk` is not exactly 32 bytes.
+	 */
+	static AsymmetricWebhook fromRawPublicKey(scope const(ubyte)[] pk)
+	{
+		if (pk.length != publicKeyBytes)
+			throw new WebhookVerificationException("ed25519 public key must be 32 bytes",
+					WebhookError.invalidSecret);
+
+		AsymmetricWebhook wh;
+		wh.publicKey = pk.idup;
+		return wh;
+	}
+
+	/**
+	 * Builds a sign-and-verify `AsymmetricWebhook` from a raw 64-byte ed25519
+	 * secret key in the libsodium `seed ‖ public_key` layout, sparing the caller
+	 * the base64-encode-then-decode round trip of the `whsk_` string constructor.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   with `invalidSecret` if `sk` is not exactly 64 bytes.
+	 */
+	static AsymmetricWebhook fromRawSecretKey(scope const(ubyte)[] sk)
+	{
+		if (sk.length != secretKeyBytes)
+			throw new WebhookVerificationException("ed25519 secret key must be 64 bytes",
+					WebhookError.invalidSecret);
+
+		AsymmetricWebhook wh;
+		wh.secretKey = sk.idup;
+		wh.publicKey = wh.secretKey[seedBytes .. $];
+		return wh;
+	}
+
 	/// Whether this instance holds a signing key and so can $(LREF sign).
 	bool canSign() const
 	{
@@ -374,6 +413,53 @@ version (unittest)
 {
 	auto wh = AsymmetricWebhook(vecSigningKey);
 	assert(wh.signingKeyEncoded() == vecSigningKey);
+}
+
+/// fromRawPublicKey() builds a verify-only instance matching the golden key.
+@safe unittest
+{
+	auto pk = Base64.decode(vecPublicKey[publicKeyPrefix.length .. $]);
+	auto wh = AsymmetricWebhook.fromRawPublicKey(pk);
+	assert(!wh.canSign());
+	assert(wh.publicKeyEncoded() == vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// fromRawPublicKey() rejects a public key that is not 32 bytes.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	ubyte[16] tooShort = 0;
+	auto ex = collectException!WebhookVerificationException(
+			AsymmetricWebhook.fromRawPublicKey(tooShort[]));
+	assert(ex !is null && ex.error == WebhookError.invalidSecret);
+}
+
+/// fromRawSecretKey() builds a sign-and-verify instance matching the golden key.
+@safe unittest
+{
+	auto sk = Base64.decode(vecSigningKey[signingKeyPrefix.length .. $]);
+	auto wh = AsymmetricWebhook.fromRawSecretKey(sk);
+	assert(wh.canSign());
+	assert(wh.signingKeyEncoded() == vecSigningKey);
+	assert(wh.publicKeyEncoded() == vecPublicKey);
+	assert(wh.sign(vecId, vecTimestamp, vecPayload) == vecSignature);
+}
+
+/// fromRawSecretKey() rejects a secret key that is not 64 bytes.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	ubyte[32] tooShort = 0;
+	auto ex = collectException!WebhookVerificationException(
+			AsymmetricWebhook.fromRawSecretKey(tooShort[]));
+	assert(ex !is null && ex.error == WebhookError.invalidSecret);
 }
 
 /// canSign reflects whether a signing key is present.
