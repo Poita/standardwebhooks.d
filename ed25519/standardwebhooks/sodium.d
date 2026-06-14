@@ -30,12 +30,25 @@ enum size_t secretKeyBytes = 64;
 /// Length in bytes of an ed25519 seed (`crypto_sign_SEEDBYTES`).
 enum size_t seedBytes = 32;
 
+/// Minimum libsodium SONAME major version (`sodium_library_version_major()`)
+/// this binding is verified against. libsodium reports `10` for the 1.0.x
+/// series, where the detached ed25519 API used here is stable.
+enum int minLibsodiumVersionMajor = 9;
+
 extern (C) @system @nogc nothrow
 {
 	/// Initialises the library; safe and idempotent. Must be called before other
 	/// functions in multithreaded programs. Returns 0 on success, 1 if already
 	/// initialised, and a negative value on failure.
 	int sodium_init();
+
+	/// Returns the runtime SONAME major version of the linked libsodium. Used to
+	/// reject a shared library older than the detached ed25519 API relied on here.
+	int sodium_library_version_major();
+
+	/// Returns the human-readable runtime version string of the linked libsodium
+	/// (e.g. `"1.0.18"`).
+	const(char)* sodium_version_string();
 
 	/// Writes a detached signature of `m[0 .. mlen]` under secret key `sk` (64
 	/// bytes) into `sig` (64 bytes); stores the length in `*siglen_p` if non-null.
@@ -81,6 +94,39 @@ void ensureSodiumInitialised() @trusted
 		if (sodium_init() < 0)
 			throw new WebhookVerificationException("libsodium initialisation failed",
 					WebhookError.cryptoFailure);
+		checkSodiumVersion();
 		atomicStore!(MemoryOrder.rel)(sodiumInitialised, true);
 	}
+}
+
+/// Rejects a linked libsodium too old to provide the detached ed25519 API this
+/// binding calls, so an incompatible shared library fails loudly at first use
+/// rather than mis-signing or crashing.
+///
+/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+///   `invalidSecret` if the runtime version is below $(LREF minLibsodiumVersionMajor).
+private void checkSodiumVersion() @trusted
+{
+	if (sodium_library_version_major() < minLibsodiumVersionMajor)
+		throw new WebhookVerificationException("linked libsodium is too old; "
+				~ "version 1.0.4 or newer is required", WebhookError.invalidSecret);
+}
+
+/// The runtime version string of the linked libsodium (e.g. `"1.0.18"`),
+/// exposed for diagnostics and compatibility checks.
+string libsodiumVersion() @trusted
+{
+	import std.string : fromStringz;
+
+	return sodium_version_string().fromStringz.idup;
+}
+
+@safe unittest
+{
+	// The linked libsodium reports a non-empty, dotted runtime version.
+	import std.algorithm : canFind;
+
+	const v = libsodiumVersion();
+	assert(v.length > 0);
+	assert(v.canFind('.'));
 }
