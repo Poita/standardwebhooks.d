@@ -126,7 +126,7 @@ struct AsymmetricWebhook
 				return crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
 			}() != 0)
 			throw new WebhookVerificationException("ed25519 key derivation failed",
-					WebhookError.invalidSecret);
+					WebhookError.cryptoFailure);
 
 		AsymmetricWebhook wh;
 		wh.publicKey = pk.idup;
@@ -273,8 +273,8 @@ private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content
 	ulong siglen;
 	if (crypto_sign_detached(sig.ptr, &siglen,
 			cast(const(ubyte)*) content.ptr, content.length, sk.ptr) != 0)
-		throw new WebhookVerificationException("ed25519 signing failed",
-				WebhookError.signingKeyRequired);
+		throw new WebhookVerificationException("ed25519 signing failed", WebhookError.cryptoFailure);
+	assert(siglen == signatureBytes);
 	return Base64.encode(sig[0 .. siglen]).idup;
 }
 
@@ -524,4 +524,18 @@ version (unittest)
 	auto seed = Base64.decode(vecSeedB64);
 	auto wh = AsymmetricWebhook.fromSeed(seed);
 	assert(wh.publicKeyEncoded() == vecPublicKey);
+}
+
+/// A freshly signed payload round-trips through verify after the crypto
+/// hardening, confirming the ed25519 primitives still operate normally.
+@safe unittest
+{
+	auto signer = AsymmetricWebhook(vecSigningKey);
+	auto sig = signer.sign(vecId, vecTimestamp, vecPayload);
+	auto verifier = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: sig,
+	];
+	assert(verifier.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
