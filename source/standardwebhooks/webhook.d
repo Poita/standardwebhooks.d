@@ -207,7 +207,7 @@ struct Webhook
 // --- Free helpers -----------------------------------------------------------
 
 /// HMAC-SHA256 of `content` under `key`, standard-base64 encoded (padded).
-private string hmacBase64(scope const(ubyte)[] key, scope const(char)[] content) @trusted
+private string hmacBase64(scope const(ubyte)[] key, scope const(char)[] content) @safe
 {
 	auto mac = HMAC!SHA256(key);
 	mac.put(cast(const(ubyte)[]) content);
@@ -613,4 +613,15 @@ version (unittest)
 		headerSignature: decoys ~ " " ~ good,
 	];
 	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+/// hmacBase64 carries plain `@safe`, not `@trusted`: its body has no genuinely
+/// unsafe operation, so the audited surface stays minimal.
+@safe unittest
+{
+	import std.traits : functionAttributes, FunctionAttribute;
+
+	enum attrs = functionAttributes!hmacBase64;
+	static assert(attrs & FunctionAttribute.safe);
+	static assert(!(attrs & FunctionAttribute.trusted));
 }
