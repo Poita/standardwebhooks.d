@@ -58,6 +58,16 @@ bool asciiEqualCI(scope const(char)[] a, scope const(char)[] b) @nogc nothrow pu
 	return true;
 }
 
+/// The Svix-branded header aliases, accepted as a fallback so payloads from a
+/// Svix sender verify unchanged. They stay package-private: surfacing them as
+/// public API would promote an interop fallback to first-class and undercut the
+/// canonical `webhook-*` names. Each verify passes the matching canonical name
+/// ahead of its alias to `lookupHeader`, so the canonical value wins when both
+/// are present.
+enum string svixHeaderId = "svix-id";
+enum string svixHeaderTimestamp = "svix-timestamp"; /// ditto
+enum string svixHeaderSignature = "svix-signature"; /// ditto
+
 /// Case-insensitive lookup returning the value for the first of `names` (which
 /// must be lowercase) that is present, or `null` if none is. `names` is scanned
 /// in priority order, so callers pass the canonical `webhook-*` name ahead of
@@ -321,4 +331,12 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 	assert(__traits(compiles, callInRestrictedContext()));
 	assert(callInRestrictedContext());
+}
+
+@safe unittest
+{
+	// The svix-* aliases are the lowercase Svix-branded header names.
+	assert(svixHeaderId == "svix-id");
+	assert(svixHeaderTimestamp == "svix-timestamp");
+	assert(svixHeaderSignature == "svix-signature");
 }
