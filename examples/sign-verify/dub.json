@@ -1,7 +1,7 @@
 {
 	"name": "sign-verify",
 	"description": "Standard Webhooks sign-then-verify example",
-	"license": "Apache-2.0",
+	"license": "MIT",
 	"targetType": "executable",
 	"dependencies": {
 		"standardwebhooks": {

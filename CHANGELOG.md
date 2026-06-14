@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Licensed under the MIT License (was Apache-2.0).
+
 ### Added
 
 - Initial release: a faithful Standard Webhooks (standardwebhooks.com)

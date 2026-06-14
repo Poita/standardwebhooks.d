@@ -1,7 +1,7 @@
 {
 	"name": "asymmetric",
 	"description": "Standard Webhooks asymmetric (ed25519) sign-then-verify example",
-	"license": "Apache-2.0",
+	"license": "MIT",
 	"targetType": "executable",
 	"dependencies": {
 		"standardwebhooks:ed25519": {

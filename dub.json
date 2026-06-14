@@ -2,7 +2,7 @@
 	"name": "standardwebhooks",
 	"description": "Standard Webhooks (standardwebhooks.com) signing and verification for D",
 	"homepage": "https://github.com/Poita/standardwebhooks.d",
-	"license": "Apache-2.0",
+	"license": "MIT",
 	"copyright": "Copyright © 2026 Peter Alexander",
 	"authors": [
 		"Peter Alexander"

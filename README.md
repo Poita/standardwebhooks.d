@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/Poita/standardwebhooks.d/branch/main/graph/badge.svg)](https://codecov.io/gh/Poita/standardwebhooks.d)
 [![Dub version](https://img.shields.io/dub/v/standardwebhooks.svg)](https://code.dlang.org/packages/standardwebhooks)
 [![Dub downloads](https://img.shields.io/dub/dt/standardwebhooks.svg)](https://code.dlang.org/packages/standardwebhooks)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![API docs](https://img.shields.io/badge/docs-API%20reference-blue.svg)](https://poita.github.io/standardwebhooks.d/)
 
 A faithful [Standard Webhooks](https://www.standardwebhooks.com/) implementation
@@ -215,5 +215,5 @@ huge file-descriptor limit — see [CONTRIBUTING.md](CONTRIBUTING.md).)
 
 ## License
 
-[Apache-2.0](LICENSE). The Standard Webhooks specification is MIT-licensed by its
+[MIT](LICENSE). The Standard Webhooks specification is also MIT-licensed by its
 authors; see [NOTICE](NOTICE).
