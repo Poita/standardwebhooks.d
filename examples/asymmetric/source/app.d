@@ -44,7 +44,7 @@ void main()
 	bool cannotSign;
 	try
 		verifier.sign(id, timestamp, payload);
-	catch (WebhookVerificationException e)
+	catch (WebhookException e)
 	{
 		cannotSign = true;
 		writefln("Receiver: cannot forge without the signing key ✓ (%s)", e.error);
@@ -56,7 +56,7 @@ void main()
 	bool rejected;
 	try
 		verifier.verifyIgnoringTimestamp(tampered, headers);
-	catch (WebhookVerificationException e)
+	catch (WebhookException e)
 	{
 		rejected = true;
 		writefln("Receiver: tampered payload rejected ✓ (%s)", e.error);

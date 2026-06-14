@@ -67,7 +67,7 @@ void main()
 ```
 
 `verify` throws a
-[`WebhookVerificationException`](https://poita.github.io/standardwebhooks.d/)
+[`WebhookException`](https://poita.github.io/standardwebhooks.d/)
 if a header is missing, the timestamp is outside the tolerance window (±5
 minutes by default), or no signature matches. On success it returns the raw
 payload so you can parse it in the same expression:
@@ -80,7 +80,7 @@ try
     auto data = parseJSON(wh.verify(body_, request.headers));
     handleEvent(data);
 }
-catch (WebhookVerificationException e)
+catch (WebhookException e)
 {
     // Reject with HTTP 400; e.error gives the machine-readable cause.
 }
@@ -142,7 +142,7 @@ void handler(HTTPServerRequest req, HTTPServerResponse res)
         auto payload = wh.verifyRequest(req);  // reads body + headers, verifies
         res.writeBody("ok");
     }
-    catch (WebhookVerificationException)
+    catch (WebhookException)
     {
         res.statusCode = HTTPStatus.badRequest;
         res.writeBody("invalid signature");
@@ -169,7 +169,7 @@ dub add standardwebhooks:ed25519
 
 **libsodium 1.0.4 or newer** is required (the detached ed25519 API the subpackage
 calls). On first use the linked library's reported version is checked, and a
-`WebhookVerificationException` is thrown if it is too old.
+`WebhookException` is thrown if it is too old.
 
 On macOS the subpackage searches the Homebrew (`/opt/homebrew/lib`,
 `/usr/local/lib`) and MacPorts (`/opt/local/lib`) prefixes. If libsodium lives

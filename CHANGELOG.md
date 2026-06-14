@@ -66,7 +66,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Timestamp replay protection with a configurable tolerance window
   (`toleranceSeconds`, default ±5 minutes).
 - Case-insensitive header lookup with Svix-branded (`svix-*`) header fallback.
-- `WebhookVerificationException` carrying a machine-readable `WebhookError`
+- `WebhookException` carrying a machine-readable `WebhookError`
   cause.
 - Optional `standardwebhooks:vibe` subpackage: `verifyRequest` and `signRequest`
   helpers for vibe.d HTTP.

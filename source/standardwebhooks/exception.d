@@ -35,10 +35,10 @@ enum WebhookError
 	cryptoFailure,
 }
 
-/// Thrown by `Webhook.verify` (and the constructor, for a bad secret) when an
-/// operation cannot complete. The `error` field identifies the cause so callers
-/// can branch without parsing `msg`.
-class WebhookVerificationException : Exception
+/// Thrown by signing, verification and key handling when an operation cannot
+/// complete. The `error` field identifies the cause so callers can branch
+/// without parsing `msg`.
+class WebhookException : Exception
 {
 	/// The machine-readable cause of the failure.
 	WebhookError error;
@@ -50,4 +50,13 @@ class WebhookVerificationException : Exception
 		super(msg, file, line);
 		this.error = error;
 	}
+}
+
+/// The exception type is named for its full remit, not just verification.
+@safe unittest
+{
+	static assert(is(WebhookException : Exception));
+	static assert(!__traits(compiles, {
+			mixin("WebhookVerificationExcept" ~ "ion x;");
+		}));
 }

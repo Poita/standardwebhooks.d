@@ -25,7 +25,7 @@
  *         // payload is the verified raw body; safe to parse and act on.
  *         res.writeBody("ok");
  *     }
- *     catch (WebhookVerificationException)
+ *     catch (WebhookException)
  *     {
  *         res.statusCode = 400;
  *         res.writeBody("invalid signature");
@@ -48,7 +48,7 @@ import standardwebhooks;
  *
  * Returns: the verified raw payload (the request body), ready to parse.
  *
- * Throws: $(REF WebhookVerificationException, standardwebhooks,exception) if the
+ * Throws: $(REF WebhookException, standardwebhooks,exception) if the
  *   request is missing headers or the signature/timestamp does not verify.
  */
 const(char)[] verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe

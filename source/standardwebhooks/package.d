@@ -5,7 +5,7 @@
  * Importing `standardwebhooks` re-exports the full public API: the
  * $(REF Webhook, standardwebhooks,webhook) signer/verifier, the canonical
  * header-name constants, and the
- * $(REF WebhookVerificationException, standardwebhooks,exception) error type.
+ * $(REF WebhookException, standardwebhooks,exception) error type.
  *
  * The core has no third-party dependencies. For vibe.d HTTP integration, depend
  * on the `standardwebhooks:vibe` subpackage and `import standardwebhooks.vibe;`.

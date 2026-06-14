@@ -65,7 +65,7 @@ private shared bool sodiumInitialised;
 /// case lock-free. A negative return value means the library could not
 /// initialise and no signing is safe.
 ///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+/// Throws: $(REF WebhookException, standardwebhooks,exception) with
 ///   `cryptoFailure` if `sodium_init()` fails.
 void ensureSodiumInitialised() @trusted
 {
@@ -79,7 +79,7 @@ void ensureSodiumInitialised() @trusted
 		if (atomicLoad!(MemoryOrder.acq)(sodiumInitialised))
 			return;
 		if (sodium_init() < 0)
-			throw new WebhookVerificationException("libsodium initialisation failed",
+			throw new WebhookException("libsodium initialisation failed",
 					WebhookError.cryptoFailure);
 		atomicStore!(MemoryOrder.rel)(sodiumInitialised, true);
 	}

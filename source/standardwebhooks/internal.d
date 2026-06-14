@@ -52,7 +52,7 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 
 /// Parses and tolerance-checks a timestamp header against `now`.
 ///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+/// Throws: $(REF WebhookException, standardwebhooks,exception) with
 ///   `invalidHeaders` if `tsHeader` is not an integer, `timestampTooOld` if it
 ///   precedes the window, or `timestampTooNew` if it follows the window.
 void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSeconds)
@@ -64,23 +64,19 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 	try
 		ts = tsHeader.to!long;
 	catch (Exception)
-		throw new WebhookVerificationException("Invalid Signature Headers",
-				WebhookError.invalidHeaders);
+		throw new WebhookException("Invalid Signature Headers", WebhookError.invalidHeaders);
 
 	// Unix seconds are never negative for any real sender; rejecting them up
 	// front keeps the `now - ts` / `ts - now` differences below from wrapping
 	// for a pathological near-`long.min` value, which would silently bypass the
 	// window. A negative timestamp is necessarily far before any plausible now.
 	if (ts < 0)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+		throw new WebhookException("Message timestamp too old", WebhookError.timestampTooOld);
 
 	if (now - ts > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+		throw new WebhookException("Message timestamp too old", WebhookError.timestampTooOld);
 	if (ts - now > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too new",
-				WebhookError.timestampTooNew);
+		throw new WebhookException("Message timestamp too new", WebhookError.timestampTooNew);
 }
 
 /// Upper bound on the number of space-delimited entries `anySignature` examines.
@@ -173,13 +169,13 @@ bool isWellFormedStdBase64(scope const(char)[] s)
 /// Strips `prefix` from `value` (if present) and base64-decodes the remainder to
 /// raw key bytes.
 ///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
+/// Throws: $(REF WebhookException, standardwebhooks,exception) with
 ///   `emptySecret` for an empty `value`, or `invalidSecret` if the remainder is
 ///   not valid base64.
 immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 {
 	if (value.length == 0)
-		throw new WebhookVerificationException("Secret can't be empty.", WebhookError.emptySecret);
+		throw new WebhookException("Secret can't be empty.", WebhookError.emptySecret);
 
 	auto b64 = value;
 	if (b64.length >= prefix.length && b64[0 .. prefix.length] == prefix)
@@ -188,7 +184,7 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 	try
 		return decodeStdBase64(b64);
 	catch (Exception)
-		throw new WebhookVerificationException("Invalid secret", WebhookError.invalidSecret);
+		throw new WebhookException("Invalid secret", WebhookError.invalidSecret);
 }
 
 // --- Tests ---

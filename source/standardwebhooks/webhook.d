@@ -82,7 +82,7 @@ struct Webhook
 	 * accepted (the decoder pads it), so secrets that have had trailing `=`
 	 * stripped still work.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   with `WebhookError.emptySecret` for an empty string, or
 	 *   `WebhookError.invalidSecret` if the remainder is not valid base64.
 	 */
@@ -148,7 +148,7 @@ struct Webhook
 	 *
 	 * Returns: `payload` unchanged, for convenient chaining.
 	 *
-	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 * Throws: $(REF WebhookException, standardwebhooks,exception)
 	 *   if a required header is missing, the timestamp is unparseable or outside
 	 *   tolerance, or no signature matches.
 	 */
@@ -178,8 +178,7 @@ struct Webhook
 		const sigHeader = lookupHeader(headers, headerSignature, "svix-signature");
 
 		if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
-			throw new WebhookVerificationException("Missing required headers",
-					WebhookError.missingHeaders);
+			throw new WebhookException("Missing required headers", WebhookError.missingHeaders);
 
 		if (checkTimestamp)
 			verifyTimestamp(tsHeader, now, toleranceSeconds);
@@ -194,7 +193,7 @@ struct Webhook
 		if (matched)
 			return payload;
 
-		throw new WebhookVerificationException("No matching signature found", WebhookError.noMatch);
+		throw new WebhookException("No matching signature found", WebhookError.noMatch);
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
@@ -299,7 +298,7 @@ version (unittest)
 {
 	import std.exception : assertThrown;
 
-	assertThrown!WebhookVerificationException(Webhook(""));
+	assertThrown!WebhookException(Webhook(""));
 }
 
 /// A tampered signature does not verify (the reference negative vector flips the
@@ -313,7 +312,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OA=",
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A valid signature is found among multiple space-delimited entries, including
@@ -339,7 +338,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: "v2,bogus v1,AAAA",
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A genuine signature buried past the entry cap is never reached, bounding the
@@ -357,7 +356,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: decoys ~ " " ~ good,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// Malformed entries (no comma, empty signature) are skipped without crashing.
@@ -370,7 +369,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: "novalue v1,",
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// A missing `webhook-id` header is rejected.
@@ -516,25 +515,23 @@ version (unittest)
 
 version (unittest)
 {
-	private WebhookVerificationException collectVerifyError(in Webhook wh,
+	private WebhookException collectVerifyError(in Webhook wh,
 			in string[string] headers, bool checkTs = false) @safe
 	{
 		import std.exception : collectException;
 
-		auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
+		auto ex = collectException!WebhookException(wh.verifyAt(vecPayload,
 				headers, vecTimestamp, checkTs));
-		assert(ex !is null, "expected a WebhookVerificationException");
+		assert(ex !is null, "expected a WebhookException");
 		return ex;
 	}
 
-	private WebhookVerificationException collectVerifyErrorAt(in Webhook wh,
-			in string[string] headers, long now) @safe
+	private WebhookException collectVerifyErrorAt(in Webhook wh, in string[string] headers, long now) @safe
 	{
 		import std.exception : collectException;
 
-		auto ex = collectException!WebhookVerificationException(wh.verifyAt(vecPayload,
-				headers, now, true));
-		assert(ex !is null, "expected a WebhookVerificationException");
+		auto ex = collectException!WebhookException(wh.verifyAt(vecPayload, headers, now, true));
+		assert(ex !is null, "expected a WebhookException");
 		return ex;
 	}
 }
@@ -563,7 +560,7 @@ version (unittest)
 	auto wh = Webhook(vecSecret);
 	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
 	auto headers = wh.signHeaders(vecId, old, vecPayload);
-	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	auto ex = collectException!WebhookException(wh.verify(vecPayload, headers));
 	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
 }
 
@@ -595,7 +592,7 @@ version (unittest)
 		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
 		headerSignature: decoys ~ " " ~ good,
 	];
-	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+	assertThrown!WebhookException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
 }
 
 /// The entry cap is exactly 64: a genuine signature at the 64th position (after
