@@ -126,7 +126,43 @@ immutable(ubyte)[] decodeStdBase64(scope const(char)[] s)
 	auto padded = s.dup;
 	while (padded.length % 4 != 0)
 		padded ~= '=';
+
+	// Base64.decode asserts (an uncatchable Error) on malformed input such as a
+	// '=' that is not trailing padding, so the input is validated up front and a
+	// plain Exception is thrown instead. This keeps the catch(Exception) at the
+	// call sites effective and behaves identically in debug and -release.
+	if (!isWellFormedStdBase64(padded))
+		throw new Exception("Invalid base64");
+
 	return Base64.decode(padded).idup;
+}
+
+/// True when `s` is well-formed, fully-padded standard base64: its length is a
+/// multiple of four, every character is in the standard alphabet (or a trailing
+/// `=`), and any `=` appears only as the final one or two characters.
+bool isWellFormedStdBase64(scope const(char)[] s)
+{
+	if (s.length % 4 != 0)
+		return false;
+
+	size_t pad = 0;
+	foreach (c; s)
+	{
+		if (c == '=')
+			++pad;
+		else
+		{
+			// A non-padding character after padding has begun is malformed.
+			if (pad != 0)
+				return false;
+			const isAlnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+			if (!(isAlnum || c == '+' || c == '/'))
+				return false;
+		}
+	}
+
+	// Standard base64 never needs more than two padding characters.
+	return pad <= 2;
 }
 
 /// Strips `prefix` from `value` (if present) and base64-decodes the remainder to
@@ -148,4 +184,47 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 		return decodeStdBase64(b64);
 	catch (Exception)
 		throw new WebhookVerificationException("Invalid secret", WebhookError.invalidSecret);
+}
+
+// --- Tests ---
+
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	// A '=' that is not final padding makes Base64.decode assert; it must be
+	// rejected as a catchable Exception instead.
+	assertThrown!Exception(decodeStdBase64("AA=AAAAA"));
+}
+
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	assertThrown!Exception(decodeStdBase64("Zg==Zg=="));
+}
+
+@safe unittest
+{
+	import std.exception : assertThrown;
+
+	assertThrown!Exception(decodeStdBase64("ab=cdefg"));
+}
+
+@safe unittest
+{
+	// Padded standard base64 round-trips.
+	assert(decodeStdBase64("Zm9v") == cast(immutable(ubyte)[]) "foo");
+}
+
+@safe unittest
+{
+	// Unpadded input (trailing '=' stripped by the sender) still decodes.
+	assert(decodeStdBase64("Zg") == cast(immutable(ubyte)[]) "f");
+}
+
+@safe unittest
+{
+	// Explicitly padded input decodes to the same bytes as its unpadded form.
+	assert(decodeStdBase64("Zm8=") == cast(immutable(ubyte)[]) "fo");
 }
