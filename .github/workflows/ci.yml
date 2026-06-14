@@ -23,7 +23,7 @@ jobs:
       # the working tree changed. The dfmt config lives in dfmt.json.
       - name: Check formatting (dfmt)
         run: |
-          dub run dfmt -- --inplace source/ vibe/ examples/
+          dub run dfmt -- --inplace source/ vibe/ ed25519/ examples/
           git diff --exit-code
 
   dscanner-lint:
@@ -100,8 +100,37 @@ jobs:
       - name: Build vibe subpackage
         run: dub build :vibe
 
+  build-ed25519:
+    name: ed25519 subpackage on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install D compiler
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      # The ed25519 subpackage links the system libsodium for the ed25519
+      # primitives.
+      - name: Install libsodium (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev
+
+      - name: Install libsodium (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libsodium
+
+      - name: Test ed25519 subpackage
+        run: dub test :ed25519
+
   example:
-    name: example (build + run)
+    name: examples (build + run)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -112,10 +141,16 @@ jobs:
         with:
           compiler: ldc-latest
 
-      # The example signs a payload then verifies it, exiting non-zero on any
-      # mismatch — a self-checking end-to-end smoke test.
-      - name: Build + run example
+      - name: Install libsodium (for the asymmetric example)
+        run: sudo apt-get update && sudo apt-get install -y libsodium-dev
+
+      # Each example signs a payload then verifies it, exiting non-zero on any
+      # mismatch — self-checking end-to-end smoke tests.
+      - name: Build + run symmetric example
         run: dub run --root examples/sign-verify
+
+      - name: Build + run asymmetric example
+        run: dub run --root examples/asymmetric
 
   coverage:
     name: coverage to Codecov

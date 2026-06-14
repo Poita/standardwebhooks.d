@@ -3,7 +3,7 @@
 # Run D-Scanner static analysis over the library sources and fail on any finding.
 #
 # This is the script the CI "dscanner lint" gate invokes. It runs:
-#     dub run dscanner -- --styleCheck source/ vibe/
+#     dub run dscanner -- --styleCheck source/ vibe/ ed25519/
 # using the project's dscanner.ini (which documents every disabled check), then
 # fails if D-Scanner reports any warning or error.
 #
@@ -20,7 +20,7 @@ cd "${REPO_ROOT}"
 ulimit -n 65536 2>/dev/null || true
 
 # Collect only the diagnostic lines (D-Scanner prints them to stdout).
-raw="$(dub run --quiet dscanner -- --styleCheck source/ vibe/ 2>/dev/null || true)"
+raw="$(dub run --quiet dscanner -- --styleCheck source/ vibe/ ed25519/ 2>/dev/null || true)"
 
 # Keep only [warn]/[error] diagnostics.
 findings="$(printf '%s\n' "${raw}" | grep -E '\[(warn|error)\]' || true)"

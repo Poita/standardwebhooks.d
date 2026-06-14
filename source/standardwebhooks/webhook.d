@@ -26,14 +26,13 @@
 module standardwebhooks.webhook;
 
 import std.base64 : Base64;
-import std.conv : to, ConvException;
-import std.datetime.systime : Clock, SysTime;
-import std.datetime.timezone : UTC;
+import std.conv : to;
+import std.datetime.systime : SysTime;
 import std.digest.hmac : HMAC;
 import std.digest.sha : SHA256;
-import std.string : indexOf, toLower;
 
 import standardwebhooks.exception;
+import standardwebhooks.internal;
 
 @safe:
 
@@ -84,7 +83,7 @@ struct Webhook
 	 */
 	this(string secret)
 	{
-		this.key = decodeSecret(secret);
+		this.key = decodePrefixedKey(secret, secretPrefix);
 	}
 
 	/**
@@ -178,95 +177,29 @@ struct Webhook
 					WebhookError.missingHeaders);
 
 		if (checkTimestamp)
-			verifyTimestamp(tsHeader, now);
+			verifyTimestamp(tsHeader, now, toleranceSeconds);
 
 		// The signed content uses the timestamp header string verbatim — not a
 		// reparsed integer — so a sender's exact formatting round-trips.
 		const expected = signRaw(msgId, tsHeader, payload);
 
-		size_t start = 0;
-		while (start <= sigHeader.length)
-		{
-			auto end = sigHeader.indexOf(' ', start);
-			const part = end < 0 ? sigHeader[start .. $] : sigHeader[start .. end];
-			if (matchPart(part, expected))
-				return payload;
-			if (end < 0)
-				break;
-			start = end + 1;
-		}
+		const matched = anySignature(sigHeader, (scope version_, scope signature) {
+			return version_ == signatureVersion && constantTimeEquals(signature, expected);
+		});
+		if (matched)
+			return payload;
 
 		throw new WebhookVerificationException("No matching signature found", WebhookError.noMatch);
-	}
-
-	/// Returns true if `part` is a `v1` entry whose base64 signature matches
-	/// `expected` in constant time. Non-`v1` and malformed entries are skipped.
-	private static bool matchPart(scope const(char)[] part, scope const(char)[] expected)
-	{
-		const comma = part.indexOf(',');
-		if (comma < 0)
-			return false;
-		if (part[0 .. comma] != signatureVersion)
-			return false;
-		return constantTimeEquals(part[comma + 1 .. $], expected);
 	}
 
 	/// Computes the bare base64 HMAC-SHA256 signature (without the `v1,` prefix).
 	private string signRaw(string msgId, scope const(char)[] tsStr, scope const(char)[] payload) const
 	{
-		auto content = msgId ~ "." ~ tsStr ~ "." ~ payload;
-		return hmacBase64(key, content);
-	}
-
-	/// Parses and tolerance-checks the timestamp header against `now`.
-	private void verifyTimestamp(scope const(char)[] tsHeader, long now) const
-	{
-		long ts;
-		try
-			ts = tsHeader.to!long;
-		catch (ConvException)
-			throw new WebhookVerificationException("Invalid Signature Headers",
-					WebhookError.invalidHeaders);
-
-		if (now - ts > toleranceSeconds)
-			throw new WebhookVerificationException("Message timestamp too old",
-					WebhookError.timestampTooOld);
-		if (ts - now > toleranceSeconds)
-			throw new WebhookVerificationException("Message timestamp too new",
-					WebhookError.timestampTooNew);
+		return hmacBase64(key, buildSignedContent(msgId, tsStr, payload));
 	}
 }
 
 // --- Free helpers -----------------------------------------------------------
-
-/// Current unix time in seconds, in UTC.
-private long currentUnixSeconds() @safe
-{
-	return Clock.currTime(UTC()).toUnixTime();
-}
-
-/// Strips the `whsec_` prefix (if present), pads the remainder to a base64
-/// boundary, and decodes it to the HMAC key.
-private immutable(ubyte)[] decodeSecret(string secret) @safe
-{
-	if (secret.length == 0)
-		throw new WebhookVerificationException("Secret can't be empty.", WebhookError.emptySecret);
-
-	auto b64 = secret;
-	if (b64.length >= secretPrefix.length && b64[0 .. secretPrefix.length] == secretPrefix)
-		b64 = b64[secretPrefix.length .. $];
-
-	// Standard base64 wants `=` padding to a multiple of four; reference secrets
-	// are sometimes shipped unpadded, so restore the padding before decoding.
-	auto padded = b64.dup;
-	while (padded.length % 4 != 0)
-		padded ~= '=';
-
-	try
-		return Base64.decode(padded).idup;
-	catch (Exception)
-		throw new WebhookVerificationException("Invalid secret", WebhookError.invalidSecret);
-}
 
 /// HMAC-SHA256 of `content` under `key`, standard-base64 encoded (padded).
 private string hmacBase64(scope const(ubyte)[] key, scope const(char)[] content) @trusted
@@ -288,20 +221,6 @@ private bool constantTimeEquals(scope const(char)[] a, scope const(char)[] b) @s
 	foreach (i; 0 .. a.length)
 		diff |= cast(uint)(a[i] ^ b[i]);
 	return diff == 0;
-}
-
-/// Case-insensitive lookup returning the first header whose key matches any of
-/// `names` (which must be lowercase), or `null` if none is present.
-private string lookupHeader(in string[string] headers, scope const(string)[] names...) @safe
-{
-	foreach (key, value; headers)
-	{
-		const lowered = key.toLower;
-		foreach (name; names)
-			if (lowered == name)
-				return value;
-	}
-	return null;
 }
 
 // --- Tests ------------------------------------------------------------------

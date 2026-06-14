@@ -36,6 +36,32 @@
 				},
 				"vibe-d:http": "~>0.9.8"
 			}
+		},
+		{
+			"name": "ed25519",
+			"description": "Asymmetric ed25519 (v1a) signatures for standardwebhooks, via libsodium",
+			"targetType": "library",
+			"sourcePaths": [
+				"ed25519"
+			],
+			"importPaths": [
+				"ed25519"
+			],
+			"dependencies": {
+				"standardwebhooks": {
+					"path": "."
+				}
+			},
+			"libs-posix": [
+				"sodium"
+			],
+			"libs-windows": [
+				"libsodium"
+			],
+			"lflags-osx": [
+				"-L/opt/homebrew/lib",
+				"-L/usr/local/lib"
+			]
 		}
 	]
 }

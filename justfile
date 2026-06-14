@@ -20,13 +20,21 @@ build:
 build-vibe:
     ulimit -n 65536 && dub build :vibe
 
+# Build the asymmetric ed25519 subpackage (requires system libsodium).
+build-ed25519:
+    ulimit -n 65536 && dub build :ed25519
+
 # Run all unit tests (core, including the official reference vectors).
 test:
     ulimit -n 65536 && dub test
 
-# Format the source in place (source/ + vibe/ + examples/, matching CI).
+# Run the asymmetric ed25519 subpackage unit tests (requires system libsodium).
+test-ed25519:
+    ulimit -n 65536 && dub test :ed25519
+
+# Format the source in place (source/ + vibe/ + ed25519/ + examples/, matching CI).
 fmt:
-    ulimit -n 65536 && dub run dfmt -- --inplace source/ vibe/ examples/
+    ulimit -n 65536 && dub run dfmt -- --inplace source/ vibe/ ed25519/ examples/
 
 # Run the exact D-Scanner lint gate CI runs.
 lint:
@@ -36,6 +44,10 @@ lint:
 docs:
     ./scripts/gen-docs.sh
 
-# Build + run the runnable example (signs then verifies a payload).
+# Build + run the runnable examples (each signs then verifies a payload).
 example:
     ulimit -n 65536 && dub run --root examples/sign-verify
+
+# Build + run the asymmetric ed25519 example (requires system libsodium).
+example-ed25519:
+    ulimit -n 65536 && dub run --root examples/asymmetric
