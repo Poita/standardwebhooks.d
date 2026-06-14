@@ -477,3 +477,44 @@ version (unittest)
 		return ex;
 	}
 }
+
+/// The public verify() uses the real clock: a payload signed at the current time
+/// passes without an injected `now`.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	auto wh = Webhook(vecSecret);
+	const now = Clock.currTime(UTC()).toUnixTime();
+	auto headers = wh.signHeaders(vecId, now, vecPayload);
+	assert(wh.verify(vecPayload, headers) == vecPayload);
+}
+
+/// The public verify() rejects a payload whose timestamp is well outside the
+/// tolerance window of the real clock.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+	import std.exception : collectException;
+
+	auto wh = Webhook(vecSecret);
+	const old = Clock.currTime(UTC()).toUnixTime() - 1000;
+	auto headers = wh.signHeaders(vecId, old, vecPayload);
+	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
+	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
+}
+
+/// anySignature splits each entry on its first comma only, so a decoy entry
+/// carrying extra commas does not stop the genuine `v1,<sig>` from matching.
+@safe unittest
+{
+	auto wh = Webhook(vecSecret);
+	const good = wh.sign(vecId, vecTimestamp, vecPayload); // "v1,...."
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,a,b " ~ good,
+	];
+	assert(wh.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
