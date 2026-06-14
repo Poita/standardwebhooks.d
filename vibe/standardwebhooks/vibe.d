@@ -51,12 +51,23 @@ import standardwebhooks;
  * Throws: $(REF WebhookVerificationException, standardwebhooks,exception) if the
  *   request is missing headers or the signature/timestamp does not verify.
  */
-const(char)[] verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe
+string verifyRequest(in Webhook wh, scope HTTPServerRequest req) @safe
 {
 	// Read the raw body bytes: signature verification must run over the exact
 	// bytes received. UTF-8 validation or BOM stripping would alter them.
-	const payload = () @trusted { return cast(string) req.bodyReader.readAll(); }();
-	return wh.verify(payload, toAA(req.headers));
+	string payload = () @trusted { return cast(string) req.bodyReader.readAll(); }();
+	// The body buffer is owned here, so verifying for its throwing side-effect
+	// and returning the payload as `string` avoids a copy at the receiver.
+	wh.verify(payload, toAA(req.headers));
+	return payload;
+}
+
+/// verifyRequest returns an owned `string`, not a borrowed `const(char)[]`.
+@safe unittest
+{
+	import std.traits : ReturnType;
+
+	static assert(is(ReturnType!verifyRequest == string));
 }
 
 /**
