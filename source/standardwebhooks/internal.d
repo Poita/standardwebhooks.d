@@ -83,7 +83,9 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 /// Upper bound on the number of space-delimited entries `anySignature` examines.
 /// Each examined entry can trigger a full HMAC/ed25519 verify, so capping the
 /// count bounds the work an attacker can force with a long header and keeps the
-/// limit comfortably above any realistic key-rotation overlap.
+/// limit comfortably above any realistic key-rotation overlap. Capping at 64 is
+/// an intentional anti-amplification divergence from the reference libraries,
+/// which examine every entry; signature entries beyond the cap are not examined.
 enum size_t maxSignatureEntries = 64;
 
 /// Walks the space-delimited `webhook-signature` header, splitting each entry on

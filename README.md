@@ -111,6 +111,9 @@ with SHA-256 under the decoded secret, then standard-base64 encoded. The
 `webhook-signature` header is a space-delimited list of `v1,<sig>` entries
 (supporting zero-downtime secret rotation); verification succeeds if **any**
 `v1` entry matches in constant time. Entries with other versions are skipped.
+As an intentional anti-amplification divergence from the reference libraries,
+at most 64 signature entries are examined per header; any beyond that cap are
+ignored, which stays well above any realistic key-rotation overlap.
 
 The core implements the symmetric (HMAC, `whsec_`, `v1`) scheme, which is what
 every official reference library ships, and treats unknown versions (including
