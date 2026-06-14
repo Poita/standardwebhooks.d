@@ -137,7 +137,11 @@ struct AsymmetricWebhook
 
 		AsymmetricWebhook wh;
 		wh.publicKey = pk.idup;
+		// The persisted secret key lives in immutable GC memory and is not wiped:
+		// copies alias the same backing array, so zeroing it would be unsound. Only
+		// the transient stack buffer below is wiped once its bytes are copied out.
 		wh.secretKey = sk.idup;
+		() @trusted { sodium_memzero(sk.ptr, sk.length); }();
 		return wh;
 	}
 
@@ -886,8 +890,9 @@ version (unittest)
 	assert(ex !is null && ex.error == fromTry.error);
 }
 
-/// A freshly signed payload round-trips through verify after the crypto
-/// hardening, confirming the ed25519 primitives still operate normally.
+/// A freshly signed payload round-trips through verify, confirming the ed25519
+/// primitives operate normally even though fromSeed wipes its transient secret-key
+/// stack buffer after copying the key into the struct.
 @safe unittest
 {
 	auto signer = AsymmetricWebhook(vecSigningKey);

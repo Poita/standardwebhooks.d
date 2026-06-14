@@ -52,6 +52,10 @@ extern (C) @system @nogc nothrow
 	/// Derives a key pair from a 32-byte `seed`, writing the 32-byte public key to
 	/// `pk` and the 64-byte secret key to `sk`. Returns 0 on success.
 	int crypto_sign_seed_keypair(scope ubyte* pk, scope ubyte* sk, scope const(ubyte)* seed);
+
+	/// Overwrites `len` bytes at `pnt` with zeros in a way the compiler will not
+	/// optimise away, used to wipe transient secret material before it leaves scope.
+	void sodium_memzero(scope void* pnt, size_t len);
 }
 
 /// Whether `sodium_init()` has already completed successfully. Written under
