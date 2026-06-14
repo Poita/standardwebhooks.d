@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `tryVerify` and `tryVerifyIgnoringTimestamp` on `Webhook` and
+  `AsymmetricWebhook`, returning a `VerifyResult { ok, error, payload }` instead
+  of throwing, so a routine invalid inbound signature is ordinary control flow.
+  The throwing `verify` family is implemented on top of these.
 - `WebhookError.cryptoFailure`, reported when an ed25519/libsodium primitive or
   initialisation fails, distinct from caller-input error codes.
 - Tests for the vibe subpackage helpers and the real-clock `verify()` path of

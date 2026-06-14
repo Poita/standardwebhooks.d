@@ -4,7 +4,9 @@
  *
  * Importing `standardwebhooks` re-exports the full public API: the
  * $(REF Webhook, standardwebhooks,webhook) signer/verifier, the canonical
- * header-name constants, and the
+ * header-name constants, the
+ * $(REF VerifyResult, standardwebhooks,exception) returned by the non-throwing
+ * `tryVerify` family, and the
  * $(REF WebhookVerificationException, standardwebhooks,exception) error type.
  *
  * The core has no third-party dependencies. For vibe.d HTTP integration, depend

@@ -278,7 +278,7 @@ struct AsymmetricWebhook
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
 	{
-		return verifyAt(payload, headers, currentUnixSeconds(), true);
+		return throwOnFailure(tryVerify(payload, headers));
 	}
 
 	/**
@@ -292,7 +292,31 @@ struct AsymmetricWebhook
 	const(char)[] verifyIgnoringTimestamp(scope return const(char)[] payload,
 			in string[string] headers) const
 	{
-		return verifyAt(payload, headers, currentUnixSeconds(), false);
+		return throwOnFailure(tryVerifyIgnoringTimestamp(payload, headers));
+	}
+
+	/**
+	 * Verifies `payload` against `headers` without throwing, returning a
+	 * $(REF VerifyResult, standardwebhooks,exception). An invalid inbound
+	 * signature is routine control flow for a receiver, so callers branch on the
+	 * result's `error` instead of catching. The throwing $(LREF verify) is built
+	 * on this, so the two stay in lock-step.
+	 *
+	 * Header matching and the timestamp window behave exactly as in $(LREF verify).
+	 */
+	VerifyResult tryVerify(scope return const(char)[] payload, in string[string] headers) const
+	{
+		return tryVerifyAt(payload, headers, currentUnixSeconds(), true);
+	}
+
+	/**
+	 * Like $(LREF tryVerify) but skips the timestamp tolerance check entirely. Use
+	 * only when replay protection is handled elsewhere.
+	 */
+	VerifyResult tryVerifyIgnoringTimestamp(scope return const(char)[] payload,
+			in string[string] headers) const
+	{
+		return tryVerifyAt(payload, headers, currentUnixSeconds(), false);
 	}
 
 	/// Verifies against an explicit `now` (unix seconds). Exposed for
@@ -300,8 +324,19 @@ struct AsymmetricWebhook
 	package const(char)[] verifyAt(scope return const(char)[] payload,
 			in string[string] headers, long now, bool checkTimestamp) const
 	{
+		return throwOnFailure(tryVerifyAt(payload, headers, now, checkTimestamp));
+	}
+
+	/// The non-throwing verification core, against an explicit `now`. Exposed for
+	/// deterministic testing of the tolerance window.
+	package VerifyResult tryVerifyAt(scope return const(char)[] payload,
+			in string[string] headers, long now, bool checkTimestamp) const
+	{
 		const(char)[] msgId, tsHeader, sigHeader;
-		requireHeaders(headers, now, checkTimestamp, toleranceSeconds, msgId, tsHeader, sigHeader);
+		WebhookError error;
+		if (!tryRequireHeaders(headers, now, checkTimestamp, toleranceSeconds,
+				msgId, tsHeader, sigHeader, error))
+			return VerifyResult(false, error);
 
 		const content = buildSignedContent(msgId, tsHeader, payload);
 
@@ -309,9 +344,9 @@ struct AsymmetricWebhook
 			return version_ == asymmetricVersion && verifyDetached(publicKey, content, signature);
 		});
 		if (matched)
-			return payload;
+			return VerifyResult(true, WebhookError.init, payload);
 
-		throw new WebhookVerificationException("No matching signature found", WebhookError.noMatch);
+		return VerifyResult(false, WebhookError.noMatch);
 	}
 
 	private void requireSigningKey() const
@@ -721,6 +756,88 @@ version (unittest)
 		headerSignature: unpadded,
 	];
 	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// tryVerify reports success with the payload for a valid v1a signature.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	assert(result.ok);
+	assert(result.payload == vecPayload);
+}
+
+/// tryVerify reports failure (without throwing) for a tampered payload, naming
+/// noMatch as the cause.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	auto result = wh.tryVerifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false);
+	assert(!result.ok);
+	assert(result.error == WebhookError.noMatch);
+}
+
+/// tryVerify reports missingHeaders without throwing when a header is absent.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [headerId: vecId, headerSignature: vecSignature];
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp, false);
+	assert(!result.ok);
+	assert(result.error == WebhookError.missingHeaders);
+}
+
+/// tryVerify reports timestampTooOld without throwing for a stale timestamp.
+@safe unittest
+{
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	auto result = wh.tryVerifyAt(vecPayload, headers, vecTimestamp + 301, true);
+	assert(!result.ok);
+	assert(result.error == WebhookError.timestampTooOld);
+}
+
+/// The public tryVerify uses the real clock: a payload signed now succeeds.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	auto wh = AsymmetricWebhook(vecSigningKey);
+	const now = Clock.currTime(UTC()).toUnixTime();
+	auto headers = wh.signHeaders(vecId, now, vecPayload);
+	auto result = wh.tryVerify(vecPayload, headers);
+	assert(result.ok);
+	assert(result.payload == vecPayload);
+}
+
+/// The throwing verify() is built on tryVerify: when tryVerify fails, verify()
+/// throws an exception carrying the same WebhookError cause.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	auto fromTry = wh.tryVerifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false);
+	auto ex = collectException!WebhookVerificationException(
+			wh.verifyAt(`{"test": 2432232315}`, headers, vecTimestamp, false));
+	assert(!fromTry.ok);
+	assert(ex !is null && ex.error == fromTry.error);
 }
 
 /// A freshly signed payload round-trips through verify after the crypto

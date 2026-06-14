@@ -89,44 +89,50 @@ string lookupHeader(in string[string] headers, scope const(string)[] names...)
 	return null;
 }
 
-/// Runs the non-crypto preamble shared by both verification schemes: looks up
-/// the three required headers (canonical name then Svix alias), rejects a
-/// missing one, and — when `checkTimestamp` is set — tolerance-checks the
-/// timestamp against `now`. The looked-up header values are returned through the
-/// `out` parameters so each scheme can build and check its own signature once.
-///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
-///   `missingHeaders` if any required header is absent, or the timestamp errors
-///   raised by $(LREF verifyTimestamp).
-void requireHeaders(in string[string] headers, long now, bool checkTimestamp,
+/// Runs the non-crypto preamble shared by both verification schemes without
+/// throwing: looks up the three required headers (canonical name then Svix
+/// alias) and — when `checkTimestamp` is set — tolerance-checks the timestamp
+/// against `now`. The looked-up header values are returned through the `out`
+/// parameters so each scheme can build and check its own signature once. Returns
+/// true on success; on failure returns false and sets `error` to the cause
+/// (`missingHeaders`, or any cause reported by $(LREF checkTimestamp)).
+bool tryRequireHeaders(in string[string] headers, long now, bool checkTimestamp,
 		long toleranceSeconds, out const(char)[] msgId, out const(char)[] tsHeader,
-		out const(char)[] sigHeader)
+		out const(char)[] sigHeader, out WebhookError error)
 {
 	msgId = lookupHeader(headers, wireHeaderId, svixHeaderId);
 	tsHeader = lookupHeader(headers, wireHeaderTimestamp, svixHeaderTimestamp);
 	sigHeader = lookupHeader(headers, wireHeaderSignature, svixHeaderSignature);
 
 	if (msgId.length == 0 || tsHeader.length == 0 || sigHeader.length == 0)
-		throw new WebhookVerificationException("Missing required headers",
-				WebhookError.missingHeaders);
+	{
+		error = WebhookError.missingHeaders;
+		return false;
+	}
 
 	if (checkTimestamp)
-		verifyTimestamp(tsHeader, now, toleranceSeconds);
+		return .checkTimestamp(tsHeader, now, toleranceSeconds, error);
+
+	return true;
 }
 
-/// Parses and tolerance-checks a timestamp header against `now`.
-///
-/// Throws: $(REF WebhookVerificationException, standardwebhooks,exception) with
-///   `invalidTolerance` if `toleranceSeconds` is not positive, `invalidHeaders`
-///   if `tsHeader` is not an integer, `timestampTooOld` if it precedes the
-///   window, or `timestampTooNew` if it follows the window.
-void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSeconds)
+/// Parses and tolerance-checks a timestamp header against `now` without
+/// throwing. Returns true when the timestamp is well-formed and within the
+/// window; on failure returns false and sets `error` to the cause
+/// (`invalidTolerance` if `toleranceSeconds` is not positive, `invalidHeaders`
+/// if `tsHeader` is not an integer, `timestampTooOld` if it precedes the window,
+/// or `timestampTooNew` if it follows the window).
+bool checkTimestamp(scope const(char)[] tsHeader, long now,
+		long toleranceSeconds, out WebhookError error)
 {
 	// A non-positive tolerance admits no timestamp at all, so every message
 	// would otherwise be rejected as too old; surface the misconfiguration
 	// distinctly instead of masking it as a routine stale-timestamp rejection.
 	if (toleranceSeconds <= 0)
-		throw new WebhookVerificationException("Invalid tolerance", WebhookError.invalidTolerance);
+	{
+		error = WebhookError.invalidTolerance;
+		return false;
+	}
 
 	long ts;
 	// A non-numeric value raises ConvException and invalid UTF-8 bytes raise
@@ -135,23 +141,74 @@ void verifyTimestamp(scope const(char)[] tsHeader, long now, long toleranceSecon
 	try
 		ts = tsHeader.to!long;
 	catch (Exception)
-		throw new WebhookVerificationException("Invalid Signature Headers",
-				WebhookError.invalidHeaders);
+	{
+		error = WebhookError.invalidHeaders;
+		return false;
+	}
 
 	// Unix seconds are never negative for any real sender; rejecting them up
 	// front keeps the `now - ts` / `ts - now` differences below from wrapping
 	// for a pathological near-`long.min` value, which would silently bypass the
 	// window. A negative timestamp is necessarily far before any plausible now.
 	if (ts < 0)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+	{
+		error = WebhookError.timestampTooOld;
+		return false;
+	}
 
 	if (now - ts > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too old",
-				WebhookError.timestampTooOld);
+	{
+		error = WebhookError.timestampTooOld;
+		return false;
+	}
 	if (ts - now > toleranceSeconds)
-		throw new WebhookVerificationException("Message timestamp too new",
-				WebhookError.timestampTooNew);
+	{
+		error = WebhookError.timestampTooNew;
+		return false;
+	}
+	return true;
+}
+
+/// Returns the verified payload from a successful `VerifyResult`, or throws a
+/// $(REF WebhookVerificationException, standardwebhooks,exception) carrying the
+/// result's `error`. The throwing `verify` family is implemented on top of the
+/// non-throwing `tryVerify` family through this helper, so both stay in
+/// lock-step.
+const(char)[] throwOnFailure(return scope VerifyResult result)
+{
+	if (result.ok)
+		return result.payload;
+
+	throw new WebhookVerificationException(messageFor(result.error), result.error);
+}
+
+/// The human-readable message paired with each `WebhookError` cause, used when a
+/// failed `VerifyResult` is turned into a thrown exception.
+private string messageFor(WebhookError error)
+{
+	final switch (error)
+	{
+	case WebhookError.missingHeaders:
+		return "Missing required headers";
+	case WebhookError.invalidHeaders:
+		return "Invalid Signature Headers";
+	case WebhookError.timestampTooOld:
+		return "Message timestamp too old";
+	case WebhookError.timestampTooNew:
+		return "Message timestamp too new";
+	case WebhookError.invalidTolerance:
+		return "Invalid tolerance";
+	case WebhookError.noMatch:
+		return "No matching signature found";
+	case WebhookError.invalidSecret:
+		return "Invalid secret";
+	case WebhookError.emptySecret:
+		return "Secret can't be empty.";
+	case WebhookError.signingKeyRequired:
+		return "A whsk_ signing key is required to sign";
+	case WebhookError.cryptoFailure:
+		return "Cryptographic operation failed";
+	}
 }
 
 /// Upper bound on the number of space-delimited entries `anySignature` examines.
@@ -300,13 +357,14 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 @safe unittest
 {
-	// requireHeaders returns the looked-up values through its out parameters.
+	// tryRequireHeaders returns the looked-up values through its out parameters.
 	string[string] headers = [
 		"webhook-id": "msg_1", "webhook-timestamp": "100",
 		"webhook-signature": "v1,AAAA"
 	];
 	const(char)[] msgId, tsHeader, sigHeader;
-	requireHeaders(headers, 100, true, 300, msgId, tsHeader, sigHeader);
+	WebhookError error;
+	assert(tryRequireHeaders(headers, 100, true, 300, msgId, tsHeader, sigHeader, error));
 	assert(msgId == "msg_1");
 	assert(tsHeader == "100");
 	assert(sigHeader == "v1,AAAA");
@@ -314,12 +372,13 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 @safe unittest
 {
-	// requireHeaders accepts the Svix-branded aliases as a fallback.
+	// tryRequireHeaders accepts the Svix-branded aliases as a fallback.
 	string[string] headers = [
 		"svix-id": "msg_2", "svix-timestamp": "200", "svix-signature": "v1,BBBB"
 	];
 	const(char)[] msgId, tsHeader, sigHeader;
-	requireHeaders(headers, 200, true, 300, msgId, tsHeader, sigHeader);
+	WebhookError error;
+	assert(tryRequireHeaders(headers, 200, true, 300, msgId, tsHeader, sigHeader, error));
 	assert(msgId == "msg_2");
 	assert(tsHeader == "200");
 	assert(sigHeader == "v1,BBBB");
@@ -327,12 +386,11 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 @safe unittest
 {
-	import std.exception : collectException;
-
 	// A zero tolerance is a configuration error, reported distinctly rather than
 	// as a stale-timestamp rejection of an otherwise-current timestamp.
-	auto ex = collectException!WebhookVerificationException(verifyTimestamp("1000", 1000, 0));
-	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+	WebhookError error;
+	assert(!checkTimestamp("1000", 1000, 0, error));
+	assert(error == WebhookError.invalidTolerance);
 }
 
 @safe unittest
@@ -344,40 +402,33 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 @safe unittest
 {
-	import std.exception : collectException;
-
 	// A missing required header is reported as missingHeaders.
 	string[string] headers = ["webhook-id": "msg_3", "webhook-timestamp": "300"];
 	const(char)[] msgId, tsHeader, sigHeader;
-	auto ex = collectException!WebhookVerificationException(requireHeaders(headers,
-			300, true, 300, msgId, tsHeader, sigHeader));
-	assert(ex !is null);
-	assert(ex.error == WebhookError.missingHeaders);
+	WebhookError error;
+	assert(!tryRequireHeaders(headers, 300, true, 300, msgId, tsHeader, sigHeader, error));
+	assert(error == WebhookError.missingHeaders);
 }
 
 @safe unittest
 {
-	import std.exception : collectException;
-
 	// A negative tolerance is likewise surfaced as invalidTolerance.
-	auto ex = collectException!WebhookVerificationException(verifyTimestamp("1000", 1000, -5));
-	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+	WebhookError error;
+	assert(!checkTimestamp("1000", 1000, -5, error));
+	assert(error == WebhookError.invalidTolerance);
 }
 
 @safe unittest
 {
-	import std.exception : collectException;
-
-	// requireHeaders tolerance-checks the timestamp when checkTimestamp is set.
+	// tryRequireHeaders tolerance-checks the timestamp when checkTimestamp is set.
 	string[string] headers = [
 		"webhook-id": "msg_4", "webhook-timestamp": "100",
 		"webhook-signature": "v1,AAAA"
 	];
 	const(char)[] msgId, tsHeader, sigHeader;
-	auto ex = collectException!WebhookVerificationException(requireHeaders(headers,
-			100_000, true, 300, msgId, tsHeader, sigHeader));
-	assert(ex !is null);
-	assert(ex.error == WebhookError.timestampTooOld);
+	WebhookError error;
+	assert(!tryRequireHeaders(headers, 100_000, true, 300, msgId, tsHeader, sigHeader, error));
+	assert(error == WebhookError.timestampTooOld);
 }
 
 @safe unittest
@@ -396,12 +447,11 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 
 @safe unittest
 {
-	import std.exception : collectException;
-
 	// The tolerance check precedes header parsing, so a non-positive tolerance is
 	// reported even when the timestamp header is itself unparseable.
-	auto ex = collectException!WebhookVerificationException(verifyTimestamp("oops", 1000, 0));
-	assert(ex !is null && ex.error == WebhookError.invalidTolerance);
+	WebhookError error;
+	assert(!checkTimestamp("oops", 1000, 0, error));
+	assert(error == WebhookError.invalidTolerance);
 }
 
 @safe unittest
@@ -412,7 +462,8 @@ immutable(ubyte)[] decodePrefixedKey(string value, string prefix)
 		"webhook-signature": "v1,AAAA"
 	];
 	const(char)[] msgId, tsHeader, sigHeader;
-	requireHeaders(headers, 100_000, false, 300, msgId, tsHeader, sigHeader);
+	WebhookError error;
+	assert(tryRequireHeaders(headers, 100_000, false, 300, msgId, tsHeader, sigHeader, error));
 	assert(tsHeader == "100");
 }
 
