@@ -271,6 +271,60 @@ struct AsymmetricWebhook
 	}
 }
 
+// --- Dual-scheme verification -----------------------------------------------
+
+/**
+ * Verifies `payload` against either scheme: a symmetric `v1` $(REF Webhook,
+ * standardwebhooks,webhook) or an asymmetric `v1a` $(LREF AsymmetricWebhook).
+ *
+ * A receiver that accepts both schemes builds one verifier of each and passes
+ * them here. Each is tried in turn — symmetric first, then asymmetric — and the
+ * payload is returned as soon as one accepts it. If neither does, the
+ * asymmetric verifier's exception is propagated.
+ *
+ * Both verifiers apply their own `toleranceSeconds`; verification runs against
+ * the current clock.
+ *
+ * Returns: `payload` unchanged, for convenient chaining.
+ *
+ * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+ *   if neither scheme accepts the payload.
+ */
+const(char)[] verifyAny(in Webhook symmetric, in AsymmetricWebhook asymmetric,
+		scope return const(char)[] payload, in string[string] headers)
+{
+	return verifyAnyAt(symmetric, asymmetric, payload, headers, currentUnixSeconds(), true);
+}
+
+/**
+ * Like $(LREF verifyAny) but skips the timestamp tolerance check on both
+ * verifiers. Use only when replay protection is handled elsewhere.
+ *
+ * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+ *   if neither scheme accepts the payload.
+ */
+const(char)[] verifyAnyIgnoringTimestamp(in Webhook symmetric,
+		in AsymmetricWebhook asymmetric, scope return const(char)[] payload,
+		in string[string] headers)
+{
+	return verifyAnyAt(symmetric, asymmetric, payload, headers, currentUnixSeconds(), false);
+}
+
+/// Tries both schemes against an explicit `now` (unix seconds). Exposed for
+/// deterministic testing of the dual-scheme path.
+package const(char)[] verifyAnyAt(in Webhook symmetric, in AsymmetricWebhook asymmetric,
+		scope return const(char)[] payload, in string[string] headers, long now, bool checkTimestamp)
+{
+	try
+		return symmetric.verifyAt(payload, headers, now, checkTimestamp);
+	catch (WebhookVerificationException)
+	{
+		// The symmetric scheme rejected the payload; fall through to the
+		// asymmetric scheme, whose exception is surfaced if it too rejects.
+		return asymmetric.verifyAt(payload, headers, now, checkTimestamp);
+	}
+}
+
 // --- Free helpers -----------------------------------------------------------
 
 /// Whether `s` begins with `prefix`.
@@ -637,4 +691,98 @@ version (unittest)
 		headerSignature: sig,
 	];
 	assert(verifier.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
+}
+
+// --- Dual-scheme verification tests -----------------------------------------
+// A receiver that accepts both schemes holds a symmetric secret and a
+// verify-only public key; verifyAny tries each.
+
+version (unittest)
+{
+	private enum vecSecret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+}
+
+/// verifyAny accepts a payload carrying a symmetric `v1` signature.
+@safe unittest
+{
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	auto headers = symmetric.signHeaders(vecId, vecTimestamp, vecPayload);
+	assert(verifyAnyAt(symmetric, asymmetric, vecPayload, headers,
+			vecTimestamp, false) == vecPayload);
+}
+
+/// verifyAny accepts a payload carrying an asymmetric `v1a` signature.
+@safe unittest
+{
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	assert(verifyAnyAt(symmetric, asymmetric, vecPayload, headers,
+			vecTimestamp, false) == vecPayload);
+}
+
+/// verifyAny rejects a payload that matches neither scheme.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: "v1,AAAA",
+	];
+	auto ex = collectException!WebhookVerificationException(verifyAnyAt(symmetric,
+			asymmetric, vecPayload, headers, vecTimestamp, false));
+	assert(ex !is null && ex.error == WebhookError.noMatch);
+}
+
+/// verifyAny enforces the timestamp window: an in-tolerance asymmetric payload
+/// passes while an out-of-tolerance one is rejected.
+@safe unittest
+{
+	import std.exception : collectException;
+
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	assert(verifyAnyAt(symmetric, asymmetric, vecPayload, headers, vecTimestamp, true) == vecPayload);
+	auto ex = collectException!WebhookVerificationException(verifyAnyAt(symmetric,
+			asymmetric, vecPayload, headers, vecTimestamp + 301, true));
+	assert(ex !is null && ex.error == WebhookError.timestampTooOld);
+}
+
+/// The public verifyAny uses the real clock: a freshly signed asymmetric
+/// payload passes without an injected `now`.
+@safe unittest
+{
+	import std.datetime.systime : Clock;
+	import std.datetime.timezone : UTC;
+
+	auto signer = AsymmetricWebhook(vecSigningKey);
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	const now = Clock.currTime(UTC()).toUnixTime();
+	auto headers = signer.signHeaders(vecId, now, vecPayload);
+	assert(verifyAny(symmetric, asymmetric, vecPayload, headers) == vecPayload);
+}
+
+/// verifyAnyIgnoringTimestamp accepts an old asymmetric payload that the
+/// timestamp-checking path would reject.
+@safe unittest
+{
+	auto symmetric = Webhook(vecSecret);
+	auto asymmetric = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: vecSignature,
+	];
+	assert(verifyAnyIgnoringTimestamp(symmetric, asymmetric, vecPayload, headers) == vecPayload);
 }
