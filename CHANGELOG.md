@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `lookupHeader` now prefers the canonical header over its `svix-*` alias
+  deterministically when both are present, instead of depending on map
+  iteration order.
+
+### Fixed
+
+- The vibe.d `verifyRequest` helper reads the raw request body and verifies the
+  exact bytes received, so payloads survive verification unchanged.
+- `verifyTimestamp` guards against extreme or overflowing timestamp values
+  rather than wrapping the tolerance arithmetic.
+- The signature header parser caps the number of `v1` entries it examines,
+  bounding work on adversarially large headers.
+- `AsymmetricWebhook.fromSeed` returns the constructed value as documented.
+
+### Security
+
+- libsodium is initialised lazily on first asymmetric use, keeping the
+  dependency-free core free of load-time side effects.
+
 ## [0.1.0] - 2026-06-14
 
 ### Added

@@ -78,10 +78,70 @@ void signRequest(in Webhook wh, scope HTTPClientRequest req, string msgId,
 
 /// Copies a vibe `InetHeaderMap` (case-insensitive) into a plain associative
 /// array for the core verifier, whose own lookup is also case-insensitive.
-private string[string] toAA(in InetHeaderMap headers) @safe
+/// On duplicate keys the last field in insertion order wins, so the result is
+/// deterministic.
+package string[string] toAA(in InetHeaderMap headers) @safe
 {
 	string[string] result;
 	foreach (key, value; headers.byKeyValue)
 		result[key] = value;
 	return result;
+}
+
+/// toAA copies every field of the header map into the plain AA.
+@safe unittest
+{
+	InetHeaderMap headers;
+	headers.addField(headerId, "msg_2KWPBgLlAfxdpx2AI54pPJ85f4W");
+	headers.addField(headerTimestamp, "1614265330");
+	headers.addField(headerSignature, "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJ");
+
+	auto aa = toAA(headers);
+	assert(aa[headerId] == "msg_2KWPBgLlAfxdpx2AI54pPJ85f4W");
+	assert(aa[headerTimestamp] == "1614265330");
+	assert(aa[headerSignature] == "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJ");
+}
+
+/// toAA preserves the original key casing; the core verifier matches headers
+/// case-insensitively, so mixed-case keys still resolve.
+@safe unittest
+{
+	InetHeaderMap headers;
+	headers.addField("Webhook-Id", "msg_abc");
+
+	auto aa = toAA(headers);
+	assert("Webhook-Id" in aa);
+	assert(aa["Webhook-Id"] == "msg_abc");
+}
+
+/// On a duplicate key the last field in insertion order wins deterministically.
+@safe unittest
+{
+	InetHeaderMap headers;
+	headers.addField(headerId, "first");
+	headers.addField(headerId, "second");
+
+	auto aa = toAA(headers);
+	assert(aa[headerId] == "second");
+}
+
+/// A signature produced by the core signer verifies against the AA that toAA
+/// builds from the equivalent header map, mirroring verifyRequest end to end.
+@safe unittest
+{
+	import std.conv : to;
+
+	auto wh = Webhook("whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+	enum msgId = "msg_2KWPBgLlAfxdpx2AI54pPJ85f4W";
+	enum timestamp = 1_614_265_330L;
+	enum payload = `{"event":"ping"}`;
+
+	const signature = wh.sign(msgId, timestamp, payload);
+
+	InetHeaderMap headers;
+	headers.addField(headerId, msgId);
+	headers.addField(headerTimestamp, timestamp.to!string);
+	headers.addField(headerSignature, signature);
+
+	assert(wh.verifyIgnoringTimestamp(payload, toAA(headers)) == payload);
 }

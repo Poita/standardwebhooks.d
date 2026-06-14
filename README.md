@@ -111,6 +111,9 @@ with SHA-256 under the decoded secret, then standard-base64 encoded. The
 `webhook-signature` header is a space-delimited list of `v1,<sig>` entries
 (supporting zero-downtime secret rotation); verification succeeds if **any**
 `v1` entry matches in constant time. Entries with other versions are skipped.
+As an intentional anti-amplification divergence from the reference libraries,
+at most 64 signature entries are examined per header; any beyond that cap are
+ignored, which stays well above any realistic key-rotation overlap.
 
 The core implements the symmetric (HMAC, `whsec_`, `v1`) scheme, which is what
 every official reference library ships, and treats unknown versions (including
@@ -169,6 +172,12 @@ On macOS the subpackage searches the Homebrew (`/opt/homebrew/lib`,
 elsewhere — Nix, a custom prefix, or another package manager — supply your own
 `-L<dir>` linker flag (e.g. via dub's `lflags` or `LDFLAGS`) so the linker can
 find it.
+
+On Windows there is no system libsodium; install it with
+[vcpkg](https://vcpkg.io) (`vcpkg install libsodium:x64-windows`) so the import
+library is on the linker's `LIB` path and the matching DLL is on `PATH` at
+runtime — mirroring what CI does. The subpackage links `libsodium` via dub's
+`libs-windows`.
 
 ```d
 import standardwebhooks;

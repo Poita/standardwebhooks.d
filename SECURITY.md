@@ -33,3 +33,12 @@ Security-relevant concerns for this library include, for example:
 
 It does **not** manage secret storage, rotation policy, or transport security
 (use TLS); those are the integrating application's responsibility.
+
+## Dependency constraints
+
+The optional `standardwebhooks:vibe` subpackage pins `vibe-d:http` to the
+`0.10.x` line. The earlier `0.9.x` line is unmaintained and shares the HTTP
+request-smuggling exposure tracked in GHSA-hm69-r6ch-92wx, so the constraint was
+moved across the minor boundary deliberately. dub's `~>` operator never crosses a
+minor version, so picking up vibe.d HTTP framing fixes like this one requires a
+manual bump of the constraint rather than a plain `dub upgrade`.

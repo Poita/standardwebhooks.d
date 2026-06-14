@@ -63,8 +63,13 @@ struct AsymmetricWebhook
 	/// instance was built from a public key alone.
 	private immutable(ubyte)[] secretKey;
 
-	/// The timestamp tolerance window in seconds; defaults to
+	/// The timestamp tolerance window in unix seconds; defaults to
 	/// $(REF defaultToleranceSeconds, standardwebhooks,webhook) (five minutes).
+	/// The window is symmetric: a message verifies when its timestamp lies
+	/// within `±toleranceSeconds` of the current time, guarding against both
+	/// stale (replayed) and future-dated payloads. A value `<= 0` rejects
+	/// nearly every message, while a very large value effectively disables
+	/// replay protection by accepting arbitrarily old timestamps.
 	long toleranceSeconds = defaultToleranceSeconds;
 
 	/**
@@ -110,6 +115,11 @@ struct AsymmetricWebhook
 	 * Derives a sign-and-verify `AsymmetricWebhook` from a 32-byte ed25519 seed.
 	 * The seed should come from a cryptographically secure source.
 	 *
+	 * This is the asymmetric scheme's key-generation entry point; the symmetric
+	 * $(REF Webhook, standardwebhooks,webhook) has no equivalent and is instead
+	 * constructed directly from an existing secret string or raw key bytes via
+	 * its `fromRaw`.
+	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   with `invalidSecret` if `seed` is not exactly 32 bytes.
 	 */
@@ -126,7 +136,7 @@ struct AsymmetricWebhook
 				return crypto_sign_seed_keypair(pk.ptr, sk.ptr, seed.ptr);
 			}() != 0)
 			throw new WebhookVerificationException("ed25519 key derivation failed",
-					WebhookError.invalidSecret);
+					WebhookError.cryptoFailure);
 
 		AsymmetricWebhook wh;
 		wh.publicKey = pk.idup;
@@ -165,7 +175,8 @@ struct AsymmetricWebhook
 	 * `webhook-signature` header.
 	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
-	 *   with `signingKeyRequired` if this is a verify-only instance.
+	 *   with `signingKeyRequired` if this is a verify-only instance, or with
+	 *   `invalidSecret` if libsodium fails to initialise.
 	 */
 	string sign(string msgId, long timestamp, scope const(char)[] payload) const
 	{
@@ -204,7 +215,7 @@ struct AsymmetricWebhook
 	 *
 	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
 	 *   if a required header is missing, the timestamp is unparseable or outside
-	 *   tolerance, or no signature matches.
+	 *   tolerance, no signature matches, or libsodium fails to initialise.
 	 */
 	const(char)[] verify(scope return const(char)[] payload, in string[string] headers) const
 	{
@@ -214,6 +225,10 @@ struct AsymmetricWebhook
 	/**
 	 * Like $(LREF verify) but skips the timestamp tolerance check entirely. Use
 	 * only when replay protection is handled elsewhere.
+	 *
+	 * Throws: $(REF WebhookVerificationException, standardwebhooks,exception)
+	 *   if a required header is missing, no signature matches, or libsodium fails
+	 *   to initialise.
 	 */
 	const(char)[] verifyIgnoringTimestamp(scope return const(char)[] payload,
 			in string[string] headers) const
@@ -273,8 +288,8 @@ private string signDetached(scope const(ubyte)[] sk, scope const(char)[] content
 	ulong siglen;
 	if (crypto_sign_detached(sig.ptr, &siglen,
 			cast(const(ubyte)*) content.ptr, content.length, sk.ptr) != 0)
-		throw new WebhookVerificationException("ed25519 signing failed",
-				WebhookError.signingKeyRequired);
+		throw new WebhookVerificationException("ed25519 signing failed", WebhookError.cryptoFailure);
+	assert(siglen == signatureBytes);
 	return Base64.encode(sig[0 .. siglen]).idup;
 }
 
@@ -284,6 +299,13 @@ private bool verifyDetached(scope const(ubyte)[] pk, scope const(char)[] content
 		scope const(char)[] signature) @trusted
 {
 	ensureSodiumInitialised();
+
+	// The spec mandates canonical standard padded base64 for v1a signatures, as
+	// the symmetric v1 scheme requires. Reject an unpadded length here so the
+	// padding-tolerant core decode cannot silently accept a non-canonical value.
+	if (signature.length % 4 != 0)
+		return false;
+
 	immutable(ubyte)[] decoded;
 	try
 		decoded = decodeStdBase64(signature);
@@ -582,4 +604,37 @@ version (unittest)
 	string[string] headers = [headerId: vecId, headerSignature: vecSignature,];
 	auto ex = collectException!WebhookVerificationException(wh.verify(vecPayload, headers));
 	assert(ex !is null && ex.error == WebhookError.missingHeaders);
+}
+
+/// An unpadded (non-canonical) signature is rejected: the spec mandates standard
+/// padded base64 for `v1a`, matching `v1`, so a stripped-padding signature must
+/// fail verification rather than be silently re-padded.
+@safe unittest
+{
+	import std.algorithm.searching : endsWith;
+	import std.exception : assertThrown;
+
+	auto wh = AsymmetricWebhook(vecPublicKey);
+	auto unpadded = vecSignature;
+	while (unpadded.endsWith("="))
+		unpadded = unpadded[0 .. $ - 1];
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: unpadded,
+	];
+	assertThrown!WebhookVerificationException(wh.verifyAt(vecPayload, headers, vecTimestamp, false));
+}
+
+/// A freshly signed payload round-trips through verify after the crypto
+/// hardening, confirming the ed25519 primitives still operate normally.
+@safe unittest
+{
+	auto signer = AsymmetricWebhook(vecSigningKey);
+	auto sig = signer.sign(vecId, vecTimestamp, vecPayload);
+	auto verifier = AsymmetricWebhook(vecPublicKey);
+	string[string] headers = [
+		headerId: vecId, headerTimestamp: vecTimestamp.to!string,
+		headerSignature: sig,
+	];
+	assert(verifier.verifyAt(vecPayload, headers, vecTimestamp, false) == vecPayload);
 }
