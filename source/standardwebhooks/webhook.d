@@ -188,6 +188,11 @@ struct Webhook
 		// reparsed integer — so a sender's exact formatting round-trips.
 		const expected = signRaw(msgId, tsHeader, payload);
 
+		// Both operands are the base64 encoding of the HMAC, and the comparison
+		// runs over that encoded form on purpose. Base64 is a deterministic
+		// bijection, so constant-time equality over the encoding is constant-time
+		// over the underlying digest. Do not change this to decode first: that
+		// adds a hot-path allocation and a malformed-input oracle for no gain.
 		const matched = anySignature(sigHeader, (scope version_, scope signature) {
 			return version_ == signatureVersion && constantTimeEquals(signature, expected);
 		});
