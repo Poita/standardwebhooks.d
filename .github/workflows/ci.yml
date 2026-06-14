@@ -106,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -125,6 +125,18 @@ jobs:
       - name: Install libsodium (macOS)
         if: runner.os == 'macOS'
         run: brew install libsodium
+
+      # Windows has no system libsodium, so vcpkg (preinstalled on the runner)
+      # provides the import lib that dub's libs-windows: [libsodium] links, plus
+      # the DLL the test binary loads at runtime.
+      - name: Install libsodium (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install libsodium:x64-windows
+          $root = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          "LIB=$root/lib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$root/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Test ed25519 subpackage
         run: dub test :ed25519
