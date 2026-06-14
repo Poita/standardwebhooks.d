@@ -37,7 +37,7 @@ or in `dub.json`:
 
 ```json
 "dependencies": {
-    "standardwebhooks": "~>1.0"
+    "standardwebhooks": "~>0.1"
 }
 ```
 
